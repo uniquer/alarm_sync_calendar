@@ -1,0 +1,21 @@
+# Gradle files
+.gradle/
+build/
+
+# Android Studio files
+*.iml
+.idea/
+local.properties
+.DS_Store
+
+# Built artifacts
+*.apk
+*.aab
+
+# Private Agent Memory (Keep GEMINI.md, ignore MEMORY.md)
+MEMORY.md
+.gemini/
+
+# Captures and logs
+captures/
+*.log

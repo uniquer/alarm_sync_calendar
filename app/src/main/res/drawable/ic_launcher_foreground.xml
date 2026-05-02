@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+
+    <!-- Calendar Icon -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:pathData="M22,32h26v26h-26z" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:pathData="M22,41h26" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M28,28v8 M42,28v8" />
+
+    <!-- Top Sync Arrow -->
+    <path
+        android:strokeColor="#FFB300"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M55,35c3,-3 12,-3 17,0" />
+    <path
+        android:strokeColor="#FFB300"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M69,35h3v-3" />
+
+    <!-- Bottom Sync Arrow -->
+    <path
+        android:strokeColor="#FFB300"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M48,65c3,3 12,3 17,0" />
+    <path
+        android:strokeColor="#FFB300"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M51,65h-3v3" />
+
+    <!-- Bell Icon -->
+    <path
+        android:fillColor="#FFB300"
+        android:pathData="M70,45c-5,0 -10,5 -10,15l-5,5h30l-5,-5c0,-10 -5,-15 -10,-15z" />
+    <path
+        android:fillColor="#FFB300"
+        android:pathData="M70,68m-4,0a4,4 0,1 1,8 0a4,4 0,1 1,-8 0" />
+
+</vector>
