@@ -369,6 +369,17 @@ fun AboutDialog(onDismiss: () -> Unit) {
                 )
                 Spacer(Modifier.height(16.dp))
                 Text("Version 1.0", style = MaterialTheme.typography.labelSmall)
+                Spacer(Modifier.height(8.dp))
+                Text("Open Source", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    "Source code available at:",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    "https://github.com/uniquer/alarm_sync_calendar",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
             }
         },
         confirmButton = {
@@ -389,7 +400,7 @@ fun RuleEditDialog(
     
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (existingRule == null) "Create Auto-Rule" else "Edit Auto-Rule") },
+        title = { Text(if (existingRule == null) "Create Rule" else "Edit Rule") },
         text = {
             Column {
                 OutlinedTextField(
@@ -397,7 +408,7 @@ fun RuleEditDialog(
                     onValueChange = { query = it },
                     label = { Text("Organizer Name or Email") },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("e.g. boss@company.com") }
+                    placeholder = { Text("e.g. karthik, xyz@abc.com") }
                 )
                 Spacer(Modifier.height(16.dp))
                 Text("Alarm Lead Time", style = MaterialTheme.typography.labelLarge)
