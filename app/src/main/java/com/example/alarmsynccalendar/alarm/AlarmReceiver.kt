@@ -12,6 +12,13 @@ import com.example.alarmsynccalendar.R
 
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        val wakeLock = powerManager.newWakeLock(
+            android.os.PowerManager.PARTIAL_WAKE_LOCK,
+            "CalAlarm:WakeLock"
+        )
+        wakeLock.acquire(3000) // Keep CPU on for 3 seconds to ensure notification/activity launch
+
         val message = intent.getStringExtra("ALARM_MESSAGE") ?: "Meeting Alarm!"
         val id = intent.getIntExtra("ALARM_ID", 1)
         showNotification(context, message, id)

@@ -19,34 +19,46 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
     private val calendarScanner = CalendarScanner(context)
 
     override suspend fun doWork(): Result {
-        Log.d("SyncWorker", "Starting background calendar sync...")
+        Log.d("SyncWorker", "--- Starting Sync Cycle ---")
         val prefs = applicationContext.getSharedPreferences("alarms", Context.MODE_PRIVATE)
         
         val alarmsJson = prefs.getString("alarm_list", null) ?: "[]"
         val rulesJson = prefs.getString("rule_list", null) ?: "[]"
+        Log.d("SyncWorker", "Current Alarms: $alarmsJson")
 
         val alarmType = object : TypeToken<List<ScheduledAlarm>>() {}.type
         val ruleType = object : TypeToken<List<AutoScheduleRule>>() {}.type
         
-        val alarms: List<ScheduledAlarm> = gson.fromJson(alarmsJson, alarmType)
-        val rules: List<AutoScheduleRule> = gson.fromJson(rulesJson, ruleType)
+        val alarms: MutableList<ScheduledAlarm> = try {
+            gson.fromJson(alarmsJson, alarmType)
+        } catch (e: Exception) {
+            Log.e("SyncWorker", "Failed to parse alarms, skipping sync to avoid corruption")
+            return Result.failure()
+        }
         
-        val syncedAlarms = alarms.toMutableList()
+        val rules: List<AutoScheduleRule> = try {
+            gson.fromJson(rulesJson, ruleType)
+        } catch (e: Exception) {
+            Log.e("SyncWorker", "Failed to parse rules")
+            emptyList()
+        }
+        
         var changed = false
+        val finalAlarms = alarms.toMutableList()
 
         // 1. Sync existing alarms (updates/cancellations)
-        val iterator = syncedAlarms.iterator()
-        val toUpdate = mutableListOf<ScheduledAlarm>()
-        
+        val iterator = finalAlarms.listIterator()
         while (iterator.hasNext()) {
             val alarm = iterator.next()
             if (alarm.calendarEventId != null) {
                 val event = getEventDetails(alarm.calendarEventId)
                 if (event == null) {
+                    Log.d("SyncWorker", "Event ${alarm.calendarEventId} cancelled or deleted, removing alarm ${alarm.id}")
                     alarmScheduler.cancelAlarm(alarm.id)
+                    iterator.remove()
                     changed = true
-                } else if (event.startTime != alarm.time) {
-                    // Check if it's an auto-scheduled alarm or a manually synced one with lead time
+                } else {
+                    // Check if time needs update
                     var targetTime = event.startTime
                     if (alarm.sourceRuleId != null) {
                         val rule = rules.find { it.id == alarm.sourceRuleId }
@@ -58,8 +70,9 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                     }
                     
                     if (targetTime != alarm.time) {
+                        Log.d("SyncWorker", "Time changed for event ${alarm.calendarEventId}, updating alarm ${alarm.id}")
                         alarmScheduler.scheduleAlarm(alarm.id, targetTime, event.message)
-                        toUpdate.add(alarm.copy(time = targetTime))
+                        iterator.set(alarm.copy(time = targetTime))
                         changed = true
                     }
                 }
@@ -67,28 +80,32 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         }
 
         // 2. Process Auto-Schedule Rules (New events)
-        if (rules.isNotEmpty()) {
+        val enabledRules = rules.filter { it.isEnabled }
+        if (enabledRules.isNotEmpty()) {
             val futureEvents = calendarScanner.getEventsForNextThreeMonths()
-            rules.filter { it.isEnabled }.forEach { rule ->
+            Log.d("SyncWorker", "Scanning ${futureEvents.size} future events for ${enabledRules.size} rules")
+            
+            enabledRules.forEach { rule ->
                 futureEvents.forEach { event ->
                     val match = event.organizer?.contains(rule.organizerQuery, ignoreCase = true) == true || 
                                 event.title.contains(rule.organizerQuery, ignoreCase = true)
                     
                     if (match) {
                         val targetTime = event.startTime - (rule.leadTimeMinutes * 60 * 1000)
-                        val existing = syncedAlarms.find { it.calendarEventId == event.id }
+                        val existing = finalAlarms.find { it.calendarEventId == event.id }
                         
                         if (existing == null) {
                             val id = (event.id.toInt() + rule.id).hashCode()
+                            Log.d("SyncWorker", "Auto-scheduling new alarm $id for event ${event.id}")
                             alarmScheduler.scheduleAlarm(id, targetTime, event.title)
-                            syncedAlarms.add(ScheduledAlarm(id, targetTime, event.title, event.id, rule.id))
+                            finalAlarms.add(ScheduledAlarm(id, targetTime, event.title, event.id, rule.id))
                             changed = true
                         } else if (existing.time != targetTime) {
-                            // Overwrite existing if time differs
+                            Log.d("SyncWorker", "Updating auto-alarm ${existing.id} for event ${event.id} to new time")
                             alarmScheduler.cancelAlarm(existing.id)
                             alarmScheduler.scheduleAlarm(existing.id, targetTime, event.title)
-                            val idx = syncedAlarms.indexOf(existing)
-                            syncedAlarms[idx] = existing.copy(time = targetTime, sourceRuleId = rule.id)
+                            val idx = finalAlarms.indexOf(existing)
+                            finalAlarms[idx] = existing.copy(time = targetTime, sourceRuleId = rule.id)
                             changed = true
                         }
                     }
@@ -97,18 +114,11 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         }
 
         if (changed) {
-            // Clean up old alarms (past events) that are gone from calendar
-            val finalAlarms = syncedAlarms.filter { alarm ->
-                if (alarm.calendarEventId == null) return@filter true
-                val exists = getEventDetails(alarm.calendarEventId)
-                exists != null
-            }.map { alarm ->
-                toUpdate.find { it.id == alarm.id } ?: alarm
-            }
-            
+            Log.d("SyncWorker", "Saving updated list of ${finalAlarms.size} alarms")
             prefs.edit().putString("alarm_list", gson.toJson(finalAlarms)).apply()
         }
 
+        Log.d("SyncWorker", "--- Sync Cycle Complete ---")
         return Result.success()
     }
 

@@ -67,6 +67,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        android.util.Log.d("MainActivity", "onCreate called")
         alarmScheduler = AlarmScheduler(this)
         calendarScanner = CalendarScanner(this)
         loadAlarms()
@@ -96,6 +97,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        android.util.Log.d("MainActivity", "onResume called - refreshing alarms")
+        loadAlarms()
+        loadRules()
+    }
+
     private fun scheduleSync() {
         val syncRequest = PeriodicWorkRequestBuilder<SyncWorker>(15, TimeUnit.MINUTES)
             .setConstraints(Constraints.Builder()
@@ -113,44 +121,96 @@ class MainActivity : ComponentActivity() {
     private fun saveAlarms() {
         val prefs = getSharedPreferences("alarms", Context.MODE_PRIVATE)
         val json = gson.toJson(activeAlarms.toList())
+        android.util.Log.d("MainActivity", "Saving ${activeAlarms.size} alarms to prefs")
         prefs.edit().putString("alarm_list", json).apply()
+    }
+
+    private fun saveRules() {
+        val prefs = getSharedPreferences("alarms", Context.MODE_PRIVATE)
+        val json = gson.toJson(activeRules.toList())
+        android.util.Log.d("MainActivity", "Saving ${activeRules.size} rules to prefs")
+        prefs.edit().putString("rule_list", json).apply()
     }
 
     private fun loadAlarms() {
         val prefs = getSharedPreferences("alarms", Context.MODE_PRIVATE)
         val json = prefs.getString("alarm_list", null)
+        android.util.Log.d("MainActivity", "Loading alarms: $json")
         if (json != null) {
             try {
                 val type = object : TypeToken<List<ScheduledAlarm>>() {}.type
                 val list: List<ScheduledAlarm> = gson.fromJson(json, type)
                 activeAlarms.clear()
                 activeAlarms.addAll(list)
+                android.util.Log.d("MainActivity", "Successfully loaded ${list.size} alarms")
             } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "Error loading alarms", e)
-                prefs.edit().remove("alarm_list").apply()
+                android.util.Log.e("MainActivity", "Error parsing alarms JSON", e)
+                // Do NOT remove the list, just log it. Maybe it can be recovered or fixed.
             }
         }
-    }
-
-    private fun saveRules() {
-        val prefs = getSharedPreferences("alarms", Context.MODE_PRIVATE)
-        val json = gson.toJson(activeRules.toList())
-        prefs.edit().putString("rule_list", json).apply()
     }
 
     private fun loadRules() {
         val prefs = getSharedPreferences("alarms", Context.MODE_PRIVATE)
         val json = prefs.getString("rule_list", null)
+        android.util.Log.d("MainActivity", "Loading rules: $json")
         if (json != null) {
             try {
                 val type = object : TypeToken<List<AutoScheduleRule>>() {}.type
                 val list: List<AutoScheduleRule> = gson.fromJson(json, type)
                 activeRules.clear()
                 activeRules.addAll(list)
+                android.util.Log.d("MainActivity", "Successfully loaded ${list.size} rules")
             } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "Error loading rules", e)
-                prefs.edit().remove("rule_list").apply()
+                android.util.Log.e("MainActivity", "Error parsing rules JSON", e)
             }
+        }
+    }
+
+    fun openSettings() {
+        val intent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = android.net.Uri.fromParts("package", packageName, null)
+        }
+        startActivity(intent)
+    }
+
+    fun openOEMSettings() {
+        val manufacturer = android.os.Build.MANUFACTURER.lowercase()
+        try {
+            val intent = Intent()
+            when {
+                manufacturer.contains("xiaomi") -> {
+                    intent.component = android.content.ComponentName(
+                        "com.miui.securitycenter",
+                        "com.miui.permcenter.autostart.AutoStartManagementActivity"
+                    )
+                }
+                manufacturer.contains("oppo") || manufacturer.contains("realme") -> {
+                    intent.component = android.content.ComponentName(
+                        "com.coloros.safecenter",
+                        "com.coloros.safecenter.permission.startup.StartupAppListActivity"
+                    )
+                }
+                manufacturer.contains("vivo") -> {
+                    intent.component = android.content.ComponentName(
+                        "com.vivo.permissionmanager",
+                        "com.vivo.permissionmanager.activity.BgStartUpManagerActivity"
+                    )
+                }
+                manufacturer.contains("huawei") || manufacturer.contains("honor") -> {
+                    intent.component = android.content.ComponentName(
+                        "com.huawei.systemmanager",
+                        "com.huawei.systemmanager.optimize.process.ProtectActivity"
+                    )
+                }
+                else -> {
+                    openSettings()
+                    return
+                }
+            }
+            startActivity(intent)
+        } catch (e: Exception) {
+            openSettings()
         }
     }
 
@@ -192,7 +252,11 @@ fun MainScreen(
     var showAboutDialog by remember { mutableStateOf(false) }
 
     if (showAboutDialog) {
-        AboutDialog(onDismiss = { showAboutDialog = false })
+        AboutDialog(
+            onDismiss = { showAboutDialog = false },
+            onOpenSettings = { (context as MainActivity).openSettings() },
+            onOpenOEM = { (context as MainActivity).openOEMSettings() }
+        )
     }
 
     if (showEditDialog) {
@@ -350,36 +414,64 @@ fun MainScreen(
 }
 
 @Composable
-fun AboutDialog(onDismiss: () -> Unit) {
+fun AboutDialog(
+    onDismiss: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenOEM: () -> Unit
+) {
+    val manufacturer = remember { android.os.Build.MANUFACTURER.lowercase() }
+    val isKnownOEM = remember {
+        manufacturer.contains("xiaomi") || 
+        manufacturer.contains("oppo") || 
+        manufacturer.contains("realme") || 
+        manufacturer.contains("vivo") || 
+        manufacturer.contains("huawei") || 
+        manufacturer.contains("honor")
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("About & Privacy") },
         text = {
-            Column {
-                Text(
-                    "CalAlarm Sync automatically synchronizes your calendar events with system alarms.",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Spacer(Modifier.height(16.dp))
-                Text("Privacy Policy", style = MaterialTheme.typography.titleSmall)
-                Text(
-                    "This app processes all calendar data locally on your device. " +
-                    "No personal details, meeting titles, or organizer information are ever collected or transmitted to any servers.",
-                    style = MaterialTheme.typography.bodySmall
-                )
-                Spacer(Modifier.height(16.dp))
-                Text("Version 1.0", style = MaterialTheme.typography.labelSmall)
-                Spacer(Modifier.height(8.dp))
-                Text("Open Source", style = MaterialTheme.typography.titleSmall)
-                Text(
-                    "Source code available at:",
-                    style = MaterialTheme.typography.bodySmall
-                )
-                Text(
-                    "https://github.com/uniquer/alarm_sync_calendar",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary
-                )
+            androidx.compose.foundation.lazy.LazyColumn {
+                item {
+                    Text(
+                        "CalAlarm Sync automatically synchronizes your calendar events with system alarms.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    
+                    Text("Device Optimization", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "For 100% reliability on ${android.os.Build.MANUFACTURER} devices, ensure Battery Saver is 'Unrestricted' and Auto-start is enabled.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = if (isKnownOEM) onOpenOEM else onOpenSettings,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
+                    ) {
+                        Text(if (isKnownOEM) "Fix Device Issues" else "Open App Settings")
+                    }
+                    
+                    Spacer(Modifier.height(16.dp))
+                    Text("Privacy Policy", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "This app processes all calendar data locally on your device. " +
+                        "No personal details... are ever collected or transmitted.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Text("Version 1.1", style = MaterialTheme.typography.labelSmall)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Source Code:", style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "https://github.com/uniquer/alarm_sync_calendar",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
             }
         },
         confirmButton = {
