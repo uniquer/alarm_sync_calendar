@@ -1,6 +1,6 @@
 # CalAlarm Sync
 
-**CalAlarm Sync** is a professional Android utility designed to bridge the gap between your busy digital calendar and your physical morning/meeting routines. It automatically converts your calendar events into loud, persistent system alarms.
+Never miss your important calendar webinar sessions. **CalAlarm Sync** automatically converts your calendar events into loud, persistent system alarms, one click auto-sync, all calendar data is locally stored and processed.
 
 ## 🚀 Features
 
