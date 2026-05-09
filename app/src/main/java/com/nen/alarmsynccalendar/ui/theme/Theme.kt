@@ -1,4 +1,4 @@
-package com.example.alarmsynccalendar.ui.theme
+package com.nen.alarmsynccalendar.ui.theme
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*

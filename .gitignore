@@ -11,6 +11,9 @@ local.properties
 # Built artifacts
 *.apk
 *.aab
+*.jks
+*.keystore
+keystore.properties
 
 # Private Agent Memory (Keep GEMINI.md, ignore MEMORY.md)
 MEMORY.md

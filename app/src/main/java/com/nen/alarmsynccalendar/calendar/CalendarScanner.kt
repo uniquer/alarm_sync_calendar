@@ -1,7 +1,11 @@
-package com.example.alarmsynccalendar.calendar
+package com.nen.alarmsynccalendar.calendar
 
 import android.content.Context
 import android.provider.CalendarContract
+
+enum class EventSource {
+    LOCAL, GOOGLE
+}
 
 data class CalendarInfo(
     val id: Long,
@@ -13,11 +17,17 @@ data class CalendarInfo(
 
 data class EventInfo(
     val id: Long,
+    val googleEventId: String? = null,
+    val recurringEventId: String? = null,
+    val isRecurring: Boolean = false,
+    val recurrenceDetails: String? = null,
     val title: String,
     val startTime: Long,
     val endTime: Long,
     val description: String?,
-    val organizer: String?
+    val organizer: String?,
+    val accountEmail: String? = null,
+    val source: EventSource = EventSource.LOCAL
 )
 
 class CalendarScanner(private val context: Context) {
@@ -57,11 +67,6 @@ class CalendarScanner(private val context: Context) {
                     val accountName = it.getString(accountNameIndex) ?: "Unknown"
                     val accountType = it.getString(accountTypeIndex) ?: "Unknown"
                     val isPrimary = it.getInt(primaryIndex) == 1
-                    val isVisible = it.getInt(visibleIndex) == 1
-                    val isSynced = it.getInt(syncIndex) == 1
-                    
-                    // We log this to help debugging
-                    android.util.Log.d("CalendarScanner", "Found Calendar: $displayName, Visible: $isVisible, Synced: $isSynced")
                     
                     calendars.add(CalendarInfo(id, displayName, accountName, accountType, isPrimary))
                 }
@@ -138,7 +143,7 @@ class CalendarScanner(private val context: Context) {
                     val desc = it.getString(descIdx)
                     val organizer = it.getString(orgIdx)
 
-                    events.add(EventInfo(id, title, start, end, desc, organizer))
+                    events.add(EventInfo(id, null, null, false, null, title, start, end, desc, organizer, null, EventSource.LOCAL))
                 }
             }
         } catch (e: Exception) {
@@ -146,4 +151,4 @@ class CalendarScanner(private val context: Context) {
         }
         return events
     }
-    }
+}

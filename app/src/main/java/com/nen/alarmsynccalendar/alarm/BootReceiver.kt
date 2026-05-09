@@ -1,10 +1,10 @@
-package com.example.alarmsynccalendar.alarm
+package com.nen.alarmsynccalendar.alarm
 
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import com.example.alarmsynccalendar.MainActivity
-import com.example.alarmsynccalendar.ScheduledAlarm
+import com.nen.alarmsynccalendar.MainActivity
+import com.nen.alarmsynccalendar.ScheduledAlarm
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 

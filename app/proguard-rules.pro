@@ -5,10 +5,10 @@
 -keep class com.google.gson.** { *; }
 
 # Keep our data models so GSON can deserialize them
--keep class com.example.alarmsynccalendar.ScheduledAlarm { *; }
--keep class com.example.alarmsynccalendar.AutoScheduleRule { *; }
--keep class com.example.alarmsynccalendar.calendar.EventInfo { *; }
--keep class com.example.alarmsynccalendar.calendar.CalendarInfo { *; }
+-keep class com.nen.alarmsynccalendar.ScheduledAlarm { *; }
+-keep class com.nen.alarmsynccalendar.AutoScheduleRule { *; }
+-keep class com.nen.alarmsynccalendar.calendar.EventInfo { *; }
+-keep class com.nen.alarmsynccalendar.calendar.CalendarInfo { *; }
 
 # Prevent R8 from messing with TypeToken signatures
 -keep class * extends com.google.gson.reflect.TypeToken

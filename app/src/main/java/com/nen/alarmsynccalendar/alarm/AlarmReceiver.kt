@@ -1,4 +1,4 @@
-package com.example.alarmsynccalendar.alarm
+package com.nen.alarmsynccalendar.alarm
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -7,8 +7,13 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
-import com.example.alarmsynccalendar.R
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import com.nen.alarmsynccalendar.RecurrenceType
+import com.nen.alarmsynccalendar.RecurrenceUtils
+import com.nen.alarmsynccalendar.ScheduledAlarm
 
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -17,11 +22,51 @@ class AlarmReceiver : BroadcastReceiver() {
             android.os.PowerManager.PARTIAL_WAKE_LOCK,
             "CalAlarm:WakeLock"
         )
-        wakeLock.acquire(3000) // Keep CPU on for 3 seconds to ensure notification/activity launch
+        wakeLock.acquire(5000) // Keep CPU on for 5 seconds
 
         val message = intent.getStringExtra("ALARM_MESSAGE") ?: "Meeting Alarm!"
         val id = intent.getIntExtra("ALARM_ID", 1)
+        
+        // Handle Recurrence chaining BEFORE showing notification to ensure persistence
+        handleRecurrence(context, id)
+        
         showNotification(context, message, id)
+    }
+
+    private fun handleRecurrence(context: Context, alarmId: Int) {
+        val prefs = context.getSharedPreferences("alarms", Context.MODE_PRIVATE)
+        val gson = Gson()
+        val alarmsJson = prefs.getString("alarm_list", "[]") ?: "[]"
+        val type = object : TypeToken<MutableList<ScheduledAlarm>>() {}.type
+        
+        try {
+            val alarms: MutableList<ScheduledAlarm> = gson.fromJson(alarmsJson, type)
+            val alarmIndex = alarms.indexOfFirst { it.id == alarmId }
+            
+            if (alarmIndex != -1) {
+                val alarm = alarms[alarmIndex]
+                if (alarm.recurrenceType != RecurrenceType.NONE) {
+                    val nextTime = RecurrenceUtils.calculateNextOccurrence(
+                        alarm.time, 
+                        alarm.recurrenceType, 
+                        alarm.recurrenceData
+                    )
+                    
+                    Log.d("AlarmReceiver", "Chaining recurring alarm ${alarm.id} from ${alarm.time} to $nextTime")
+                    
+                    val updatedAlarm = alarm.copy(time = nextTime)
+                    alarms[alarmIndex] = updatedAlarm
+                    
+                    // Save updated list
+                    prefs.edit().putString("alarm_list", gson.toJson(alarms)).apply()
+                    
+                    // Schedule the next instance
+                    AlarmScheduler(context).scheduleAlarm(updatedAlarm.id, updatedAlarm.time, updatedAlarm.message)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("AlarmReceiver", "Error handling recurrence: ${e.message}")
+        }
     }
 
     private fun showNotification(context: Context, message: String, id: Int) {

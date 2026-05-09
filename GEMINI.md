@@ -15,7 +15,11 @@
     - Package name updated to `com.nen.alarmsynccalendar`.
     - Enabled R8/ProGuard obfuscation for security.
     - Integrated In-App "About & Privacy" and created external marketing landing page.
-- **Logo:** Finalized with custom SVG vector (Indigo background, Yellow sync elements).
+### 2026-05-07: Production Signing & Package Refactor
+- **Refactor:** Fully renamed package from `com.example.alarmsynccalendar` to `com.nen.alarmsynccalendar` across all source files, manifest, and gradle configs.
+- **Build Strategy:** Disabled R8 minification and resource shrinking for `release` builds to keep the application simple and avoid potential obfuscation issues.
+- **Signing:** Configured `app/build.gradle.kts` to load signing credentials from a local `keystore.properties` file (excluded from git).
+- **Security:** Updated `.gitignore` to protect keystores and properties files.
 
 ## Future Update Design Considerations
 

@@ -1,4 +1,4 @@
-package com.example.alarmsynccalendar.alarm
+package com.nen.alarmsynccalendar.alarm
 
 import android.os.Bundle
 import android.view.WindowManager
@@ -21,6 +21,7 @@ import android.content.Context
 
 import android.app.NotificationManager
 import android.content.Intent
+import android.app.KeyguardManager
 
 class AlarmActivity : ComponentActivity() {
     private var ringtone: Ringtone? = null
@@ -32,23 +33,24 @@ class AlarmActivity : ComponentActivity() {
         val message = intent.getStringExtra("ALARM_MESSAGE") ?: "Meeting Alarm!"
         val id = intent.getIntExtra("ALARM_ID", -1)
 
-        // Ensure activity shows over lock screen
+        // Wake the screen and show over lockscreen
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
+            val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+            keyguardManager.requestDismissKeyguard(this, null)
         } else {
             @Suppress("DEPRECATION")
             window.addFlags(
+                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
+                WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON or
                 WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
             )
         }
         
-        window.addFlags(
-            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
-            WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON or
-            WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
-        )
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         // Start Ringtone
         val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
@@ -61,6 +63,7 @@ class AlarmActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             vibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 500, 500), 0))
         } else {
+            @Suppress("DEPRECATION")
             vibrator?.vibrate(longArrayOf(0, 500, 500), 0)
         }
 
@@ -69,37 +72,21 @@ class AlarmActivity : ComponentActivity() {
                 try {
                     ringtone?.stop()
                     vibrator?.cancel()
-                    
-                    // Clear the notification
                     if (id != -1) {
                         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                         notificationManager.cancel(id)
                     }
-
-                    // Go to Home screen
                     val homeIntent = Intent(Intent.ACTION_MAIN).apply {
                         addCategory(Intent.CATEGORY_HOME)
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
                     }
                     startActivity(homeIntent)
-                    finishAndRemoveTask() // More forceful than finish()
+                    finishAndRemoveTask()
                 } catch (e: Exception) {
-                    android.util.Log.e("AlarmActivity", "Error during dismissal", e)
                     finish()
                 }
             })
         }
-    }
-
-    override fun onPause() {
-        super.onPause()
-        // If user navigates away without dismissing, we should probably stop the noise
-        // but for a real alarm app, you might want to keep it playing.
-        // For this test, let's keep it simple.
-    }
-
-    override fun onBackPressed() {
-        // Disable back button to force use of Dismiss
     }
 
     override fun onDestroy() {
@@ -120,23 +107,13 @@ fun AlarmScreen(message: String, onDismiss: () -> Unit) {
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(
-                text = "ALARM",
-                fontSize = 48.sp,
-                color = MaterialTheme.colorScheme.onErrorContainer
-            )
+            Text(text = "ALARM", fontSize = 48.sp, color = MaterialTheme.colorScheme.onErrorContainer)
             Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = message,
-                fontSize = 24.sp,
-                color = MaterialTheme.colorScheme.onErrorContainer
-            )
+            Text(text = message, fontSize = 24.sp, color = MaterialTheme.colorScheme.onErrorContainer)
             Spacer(modifier = Modifier.height(48.dp))
             Button(
                 onClick = onDismiss,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.onError
-                )
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onError)
             ) {
                 Text(text = "Dismiss", color = MaterialTheme.colorScheme.error)
             }

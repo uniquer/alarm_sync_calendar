@@ -1,4 +1,4 @@
-package com.example.alarmsynccalendar.alarm
+package com.nen.alarmsynccalendar.alarm
 
 import android.app.AlarmManager
 import android.app.PendingIntent
