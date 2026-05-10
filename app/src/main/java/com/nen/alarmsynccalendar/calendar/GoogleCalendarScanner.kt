@@ -175,7 +175,7 @@ class GoogleCalendarScanner(private val context: Context) {
                             description = item.optString("description"),
                             organizer = organizer,
                             accountEmail = email,
-                            source = EventSource.GOOGLE
+                            source = EventSource.CLOUD
                         ))
                     }
                     Log.d("CAL_DEBUG", "Valid events kept for $calendarId: ${events.size}")

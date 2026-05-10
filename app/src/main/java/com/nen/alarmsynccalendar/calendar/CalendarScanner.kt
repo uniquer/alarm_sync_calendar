@@ -4,7 +4,7 @@ import android.content.Context
 import android.provider.CalendarContract
 
 enum class EventSource {
-    LOCAL, GOOGLE
+    LOCAL, CLOUD
 }
 
 data class CalendarInfo(

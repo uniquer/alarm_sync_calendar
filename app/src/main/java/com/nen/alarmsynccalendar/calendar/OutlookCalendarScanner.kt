@@ -82,7 +82,7 @@ class OutlookCalendarScanner(private val context: Context) {
                         val endTs = parseIso(item.getJSONObject("end").getString("dateTime"))
                         val organizer = item.optJSONObject("organizer")?.optJSONObject("emailAddress")?.optString("name")
                                 ?: item.optJSONObject("organizer")?.optJSONObject("emailAddress")?.optString("address") ?: "Unknown"
-                        events.add(EventInfo(id.hashCode().toLong(), id, seriesId, seriesId != null, if (seriesId != null) "Outlook Recurring" else null, summary, startTs, endTs, item.optString("bodyPreview"), organizer, email, EventSource.GOOGLE))
+                        events.add(EventInfo(id.hashCode().toLong(), id, seriesId, seriesId != null, if (seriesId != null) "Outlook Recurring" else null, summary, startTs, endTs, item.optString("bodyPreview"), organizer, email, EventSource.CLOUD))
                     }
                 }
             }

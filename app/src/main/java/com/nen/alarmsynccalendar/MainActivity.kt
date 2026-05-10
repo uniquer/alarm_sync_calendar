@@ -15,6 +15,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.items
@@ -39,6 +40,9 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import java.text.SimpleDateFormat
 import java.util.*
+import org.json.JSONObject
+import java.util.Base64
+
 import androidx.work.*
 import com.nen.alarmsynccalendar.sync.SyncWorker
 import java.util.concurrent.TimeUnit
@@ -75,7 +79,8 @@ data class ConnectedCloudAccount(
     val provider: CloudProvider,
     val selectedCalendars: List<String> = emptyList(),
     var accessToken: String? = null,
-    var refreshToken: String? = null
+    var refreshToken: String? = null,
+    val isExpandedInUi: Boolean = true
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -120,7 +125,18 @@ class MainActivity : ComponentActivity() {
         if (response != null) {
             authService.performTokenRequest(response.createTokenExchangeRequest()) { tokenResponse, _ ->
                 if (tokenResponse != null) {
-                    val email = response.request.additionalParameters["login_hint"] ?: "Outlook User"
+                    // Try to get email from id_token or similar
+                    val email = tokenResponse.idToken?.let { idToken ->
+                         try {
+                             val parts = idToken.split(".")
+                             if (parts.size >= 2) {
+                                 val payload = String(Base64.getDecoder().decode(parts[1]))
+                                 val json = JSONObject(payload)
+                                 json.optString("preferred_username", json.optString("email", "Outlook User"))
+                             } else "Outlook User"
+                         } catch (e: Exception) { "Outlook User" }
+                    } ?: "Outlook User"
+                    
                     val account = ConnectedCloudAccount(email, CloudProvider.OUTLOOK, emptyList(), tokenResponse.accessToken, tokenResponse.refreshToken)
                     connectedAccounts.removeAll { it.email == email }
                     connectedAccounts.add(account)
@@ -144,7 +160,6 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         requestPermissionLauncher.launch(permissions.toTypedArray())
 
-        // Exact Alarm Check
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val am = getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
             val appPrefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
@@ -158,7 +173,8 @@ class MainActivity : ComponentActivity() {
 
         setContent { AlarmSyncCalendarTheme {
             MainScreen(alarmScheduler, calendarScanner, googleCalendarScanner, this, activeAlarms, activeRules, cloudEvents, isCloudSignedIn, connectedAccounts, availableCalendarsMap, lastSyncTime, 
-            { signInGoogle() }, { signInOutlook() }, { disconnectAccount(it) }, { email, ids -> updateSelectedCalendars(email, ids) }, { refreshCloudEvents(true) }, { saveAlarms() }, { saveRules() })        }}
+            { signInGoogle() }, { signInOutlook() }, { disconnectAccount(it) }, { email, ids -> updateSelectedCalendars(email, ids) }, 
+            { refreshCloudEvents(true) }, { saveAlarms() }, { saveRules() }, { email, expanded -> toggleAccountExpansion(email, expanded) })        }}
     }
 
     private fun loadAccounts() {
@@ -219,6 +235,10 @@ class MainActivity : ComponentActivity() {
 
     private fun updateSelectedCalendars(email: String, ids: List<String>) {
         val i = connectedAccounts.indexOfFirst { it.email == email }; if (i != -1) { connectedAccounts[i] = connectedAccounts[i].copy(selectedCalendars = ids); saveAccounts(); refreshCloudEvents() }
+    }
+
+    private fun toggleAccountExpansion(email: String, expanded: Boolean) {
+        val i = connectedAccounts.indexOfFirst { it.email == email }; if (i != -1) { connectedAccounts[i] = connectedAccounts[i].copy(isExpandedInUi = expanded); saveAccounts() }
     }
 
     private fun refreshCloudEvents(isManual: Boolean = false) {
@@ -286,7 +306,6 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
             val appPrefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
-            // Only prompt if NOT already ignored AND haven't prompted in this install yet
             if (!pm.isIgnoringBatteryOptimizations(packageName) && !appPrefs.getBoolean("prompted_battery_final", false)) {
                 try { 
                     startActivity(Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply { data = Uri.parse("package:$packageName") }) 
@@ -304,7 +323,7 @@ fun MainScreen(
     activeAlarms: MutableList<ScheduledAlarm>, activeRules: MutableList<AutoScheduleRule>, cloudEvents: List<EventInfo>, isCloudSignedIn: Boolean,
     connectedAccounts: List<ConnectedCloudAccount>, availableCalendarsMap: Map<String, List<com.nen.alarmsynccalendar.calendar.GoogleCalendarInfo>>,
     lastSyncTime: Long, onGoogleSignIn: () -> Unit, onOutlookSignIn: () -> Unit, onDisconnectAccount: (String) -> Unit, onUpdateCalendars: (String, List<String>) -> Unit,
-    onManualSync: () -> Unit, onSave: () -> Unit, saveRules: () -> Unit
+    onManualSync: () -> Unit, onSave: () -> Unit, saveRules: () -> Unit, onToggleAccountExpansion: (String, Boolean) -> Unit
 ) {
     var selectedTab by remember { mutableStateOf(0) }
     var showEditDialog by remember { mutableStateOf(false) }
@@ -336,7 +355,8 @@ fun MainScreen(
             if (idx != -1) activeRules[idx] = u; u
         } else { val n = AutoScheduleRule(System.currentTimeMillis().toInt(), q, l); activeRules.add(n); n }
         saveRules()
-        val count = runRule(rule, calendarScanner.getEventsForNextThreeMonths(), alarmScheduler, activeAlarms) + runRule(rule, cloudEvents, alarmScheduler, activeAlarms)
+        val localEvents = calendarScanner.getEventsForNextThreeMonths()
+        val count = runRule(rule, localEvents, alarmScheduler, activeAlarms) + runRule(rule, cloudEvents, alarmScheduler, activeAlarms)
         if (count > 0) onSave()
         showRuleDialog = false; ruleToEdit = null
     })
@@ -362,7 +382,7 @@ fun MainScreen(
         Box(modifier = Modifier.padding(p).fillMaxSize()) {
             when (selectedTab) {
                 0 -> AlarmsTabScreen(activeAlarms, onDelete = { alarmScheduler.cancelAlarm(it.id); activeAlarms.remove(it); onSave() }, onEdit = { alarmToEdit = it; showEditDialog = true })
-                1 -> CalendarsTabScreen(cloudEvents, isCloudSignedIn, connectedAccounts, availableCalendarsMap, lastSyncTime, { showAddAccountChoice = true }, onDisconnectAccount, onUpdateCalendars, onManualSync, alarmScheduler, activeAlarms, onSave, context)
+                1 -> CalendarsTabScreen(cloudEvents, isCloudSignedIn, connectedAccounts, availableCalendarsMap, lastSyncTime, { showAddAccountChoice = true }, onDisconnectAccount, onUpdateCalendars, onManualSync, alarmScheduler, activeAlarms, onSave, context, onToggleAccountExpansion)
                 2 -> AutoScheduleTabScreen(activeRules, activeAlarms, { saveRules() }, { onSave() }, calendarScanner, cloudEvents, isCloudSignedIn, alarmScheduler, context)
             }
         }
@@ -381,23 +401,24 @@ fun AboutDialog(onDismiss: () -> Unit, onOpenSettings: () -> Unit, onOpenOEM: ()
         text = {
             androidx.compose.foundation.lazy.LazyColumn {
                 item {
-                    Text("CalAlarm Sync automates alarms from your cloud calendars. Version 1.6", style = MaterialTheme.typography.titleSmall)
+                    Text("CalAlarm Sync automates alarms from your cloud calendars. Version 1.7", style = MaterialTheme.typography.titleSmall)
                     Spacer(Modifier.height(12.dp))
-                    Text("Privacy: All calendar data is processed locally on this device. No information is collected or transmitted.", style = MaterialTheme.typography.bodySmall)
+                    Text("Privacy: All calendar data is processed and stored locally on this device. No information is collected or transmitted.", style = MaterialTheme.typography.bodySmall)
                     
                     Spacer(Modifier.height(16.dp))
                     Text("Device Reliability", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-                    Text("For 100% reliability (especially on Xiaomi/Oppo/Vivo/Samsung), ensure these are enabled in App Info:", style = MaterialTheme.typography.bodySmall)
-                    
-                    Text("• Auto-start", style = MaterialTheme.typography.bodySmall)
-                    Text("• Battery: Set to 'Unrestricted'", style = MaterialTheme.typography.bodySmall)
-                    Text("• Show on Lock screen (MIUI)", style = MaterialTheme.typography.bodySmall)
-                    Text("• Display over other apps", style = MaterialTheme.typography.bodySmall)
+                    Text("For 100% reliability, ensure these are enabled in App Info:", style = MaterialTheme.typography.bodySmall)
+                    Text("• Auto-start\n• Battery: 'Unrestricted'\n• Show on Lock screen\n• Display over other apps", style = MaterialTheme.typography.bodySmall)
                     
                     Spacer(Modifier.height(8.dp))
                     Button(onClick = if (isKnown) onOpenOEM else onOpenSettings, modifier = Modifier.fillMaxWidth()) {
                         Text(if (isKnown) "Open Device Settings" else "Open App Info")
                     }
+
+                    Spacer(Modifier.height(16.dp))
+                    Text("Project Links", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+                    Text(text = "Source Code (GitHub)", color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/uniquer/alarm_sync_calendar"))) }.padding(vertical = 4.dp))
+                    Text(text = "Official Website", color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://calalarm.netlify.app/"))) }.padding(vertical = 4.dp))
                 }
             }
         },
@@ -426,55 +447,69 @@ fun CalendarsTabScreen(
     cloudEvents: List<EventInfo>, isCloudSignedIn: Boolean, connectedAccounts: List<ConnectedCloudAccount>,
     availableCalendarsMap: Map<String, List<com.nen.alarmsynccalendar.calendar.GoogleCalendarInfo>>,
     lastSyncTime: Long, onAddAccount: () -> Unit, onDisconnectAccount: (String) -> Unit, onUpdateCalendars: (String, List<String>) -> Unit,
-    onManualSync: () -> Unit, alarmScheduler: AlarmScheduler, activeAlarms: MutableList<ScheduledAlarm>, onSave: () -> Unit, context: android.content.Context
+    onManualSync: () -> Unit, alarmScheduler: AlarmScheduler, activeAlarms: MutableList<ScheduledAlarm>, onSave: () -> Unit, context: android.content.Context,
+    onToggleAccountExpansion: (String, Boolean) -> Unit
 ) {
     var subTab by remember { mutableStateOf(0) }; var showDeleteConfirm by remember { mutableStateOf<ScheduledAlarm?>(null) }
     val syncSdf = SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault())
+
     if (showDeleteConfirm != null) {
         AlertDialog(onDismissRequest = { showDeleteConfirm = null }, title = { Text("Delete Alarm?") }, text = { Text("Delete local alarm? (Doesn't affect calendar event)") },
             confirmButton = { Button(onClick = { alarmScheduler.cancelAlarm(showDeleteConfirm!!.id); activeAlarms.removeAll { it.id == showDeleteConfirm!!.id }; onSave(); showDeleteConfirm = null }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Delete") } },
             dismissButton = { TextButton(onClick = { showDeleteConfirm = null }) { Text("Cancel") } }
         )
     }
+
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) { Text("Cloud Calendars", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f)); IconButton(onClick = onManualSync) { Icon(Icons.Default.Refresh, null) } }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Sync and manage your cloud calendars", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.weight(1f))
+            IconButton(onClick = onManualSync) { Icon(Icons.Default.Refresh, null) }
+        }
         if (lastSyncTime > 0) Text("Last synced: ${syncSdf.format(Date(lastSyncTime))}", style = MaterialTheme.typography.labelSmall)
-        Spacer(Modifier.height(8.dp)); TabRow(selectedTabIndex = subTab) { Tab(selected = subTab == 0, onClick = { subTab = 0 }, text = { Text("Events") }); Tab(selected = subTab == 1, onClick = { subTab = 1 }, text = { Text("Accounts") }) }
+        Spacer(Modifier.height(8.dp))
+        TabRow(selectedTabIndex = subTab) { Tab(selected = subTab == 0, onClick = { subTab = 0 }, text = { Text("Events") }); Tab(selected = subTab == 1, onClick = { subTab = 1 }, text = { Text("Accounts") }) }
         Spacer(Modifier.height(16.dp))
         if (subTab == 0) {
             if (cloudEvents.isEmpty()) { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("No events found.") } }
             else {
                 val sdf = SimpleDateFormat("HH:mm", Locale.getDefault()); val dateSdf = SimpleDateFormat("MMM dd", Locale.getDefault())
-                // Group and Sort logic
-                val groupedEvents = cloudEvents
-                    .sortedBy { it.startTime }
-                    .groupBy { it.accountEmail ?: "Unknown Account" }
+                val groupedEvents = cloudEvents.sortedBy { it.startTime }.groupBy { it.accountEmail ?: "Unknown Account" }
 
                 androidx.compose.foundation.lazy.LazyColumn {
                     groupedEvents.forEach { (email, eventsForAccount) ->
+                        val account = connectedAccounts.find { it.email == email }
+                        val isExpanded = account?.isExpandedInUi ?: true
                         item {
-                            Text(
-                                text = "Account: $email",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(top = 16.dp, bottom = 8.dp, start = 4.dp)
-                            )
-                        }
-                        items(eventsForAccount) { event ->
-                            val existing = activeAlarms.find { it.googleEventId == event.googleEventId }
-                            Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), onClick = {
-                                if (existing == null) {
-                                    val tm = event.startTime - (5 * 60 * 1000); val id = (event.googleEventId.hashCode() + System.currentTimeMillis().toInt()).hashCode()
-                                    alarmScheduler.scheduleAlarm(id, tm, event.title); activeAlarms.add(ScheduledAlarm(id, tm, event.title, googleEventId = event.googleEventId, googleRecurrenceInfo = event.recurrenceDetails, manualLeadTimeMinutes = 5))
-                                    onSave(); Toast.makeText(context, "Alarm set!", Toast.LENGTH_SHORT).show()
+                            Surface(
+                                modifier = Modifier.fillMaxWidth().clickable { onToggleAccountExpansion(email, !isExpanded) },
+                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f),
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+                            ) {
+                                Row(modifier = Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(if(isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(text = "Account: $email", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
+                                    Text(text = "${eventsForAccount.size} events", style = MaterialTheme.typography.labelSmall)
                                 }
-                            }) {
-                                Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) { Text(event.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f)); if (event.isRecurring) Icon(Icons.Default.Repeat, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.secondary) }
-                                        Text("${dateSdf.format(Date(event.startTime))}, ${sdf.format(Date(event.startTime))}"); Text(event.organizer ?: "Unknown", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                        if (isExpanded) {
+                            items(eventsForAccount) { event ->
+                                val existing = activeAlarms.find { it.googleEventId == event.googleEventId }
+                                Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), onClick = {
+                                    if (existing == null) {
+                                        val tm = event.startTime - (5 * 60 * 1000); val id = (event.googleEventId.hashCode() + System.currentTimeMillis().toInt()).hashCode()
+                                        alarmScheduler.scheduleAlarm(id, tm, event.title); activeAlarms.add(ScheduledAlarm(id, tm, event.title, googleEventId = event.googleEventId, googleRecurrenceInfo = event.recurrenceDetails, manualLeadTimeMinutes = 5))
+                                        onSave(); Toast.makeText(context, "Alarm set!", Toast.LENGTH_SHORT).show()
                                     }
-                                    if (existing != null) { IconButton(onClick = { showDeleteConfirm = existing }) { Icon(Icons.Default.AlarmOn, null, tint = MaterialTheme.colorScheme.primary) } }
+                                }) {
+                                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) { Text(event.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f)); if (event.isRecurring) Icon(Icons.Default.Repeat, null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.secondary) }
+                                            Text("${dateSdf.format(Date(event.startTime))}, ${sdf.format(Date(event.startTime))}"); Text(event.organizer ?: "Unknown", style = MaterialTheme.typography.labelSmall)
+                                        }
+                                        if (existing != null) { IconButton(onClick = { showDeleteConfirm = existing }) { Icon(Icons.Default.AlarmOn, null, tint = MaterialTheme.colorScheme.primary) } }
+                                    }
                                 }
                             }
                         }
@@ -493,7 +528,9 @@ fun CalendarsTabScreen(
                                 IconButton(onClick = { onDisconnectAccount(acc.email) }) { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) }
                             }
                             if (expanded) {
-                                (availableCalendarsMap[acc.email] ?: emptyList()).forEach { cal ->
+                                val cals = availableCalendarsMap[acc.email] ?: emptyList()
+                                if (cals.isEmpty()) { Text("Fetching calendars...", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall) }
+                                else cals.forEach { cal ->
                                     val isSelected = acc.selectedCalendars.contains(cal.id)
                                     Row(modifier = Modifier.fillMaxWidth().clickable { val next = acc.selectedCalendars.toMutableList(); if (isSelected) next.remove(cal.id) else next.add(cal.id); onUpdateCalendars(acc.email, next) }.padding(horizontal = 32.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                         Checkbox(isSelected, { checked -> val next = acc.selectedCalendars.toMutableList(); if (checked) next.add(cal.id) else next.remove(cal.id); onUpdateCalendars(acc.email, next) }); Text(cal.summary, style = MaterialTheme.typography.bodySmall)
@@ -520,17 +557,18 @@ fun AutoScheduleTabScreen(activeRules: MutableList<AutoScheduleRule>, activeAlar
             dismissButton = { TextButton(onClick = { ruleToDelete = null }) { Text("Cancel") } }
         )
     }
-    if (selectedRule != null) {
-        val ruleAlarms = activeAlarms.filter { it.sourceRuleId == selectedRule!!.id }
-        Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        if (selectedRule != null) {
+            val ruleAlarms = activeAlarms.filter { it.sourceRuleId == selectedRule!!.id }
             Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = { selectedRule = null }) { Icon(Icons.Default.ArrowBack, null) }; Text("Alarms: ${selectedRule!!.organizerQuery}", modifier = Modifier.weight(1f)) }
             if (ruleAlarms.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("No alarms.") }
             else androidx.compose.foundation.lazy.LazyColumn { items(ruleAlarms) { AlarmCard(it, {}, { alarmScheduler.cancelAlarm(it.id); activeAlarms.remove(it); onSaveAlarms() }) } }
-        }
-    } else {
-        androidx.compose.foundation.lazy.LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-            item { Text("Automation Rules", style = MaterialTheme.typography.headlineSmall); Spacer(Modifier.height(16.dp)) }
-            items(activeRules) { rule -> RuleCard(rule, activeAlarms, { idx -> val i = activeRules.indexOfFirst { it.id == rule.id }; if (i != -1) { activeRules[i] = rule.copy(isEnabled = idx); onSaveRules() } }, { ruleToDelete = rule }, { selectedRule = rule }) }
+        } else {
+            Text("Automate alarms based on calendar keywords", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+            Spacer(Modifier.height(16.dp))
+            androidx.compose.foundation.lazy.LazyColumn(modifier = Modifier.fillMaxSize()) {
+                items(activeRules) { rule -> RuleCard(rule, activeAlarms, { idx -> val i = activeRules.indexOfFirst { it.id == rule.id }; if (i != -1) { activeRules[i] = rule.copy(isEnabled = idx); onSaveRules() } }, { ruleToDelete = rule }, { selectedRule = rule }) }
+            }
         }
     }
 }
@@ -541,7 +579,7 @@ fun RuleCard(rule: AutoScheduleRule, activeAlarms: List<ScheduledAlarm>, onToggl
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onClick() }) {
         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) { Text(rule.organizerQuery, style = MaterialTheme.typography.titleMedium); Text("$count scheduled", style = MaterialTheme.typography.bodySmall) }
-            Switch(checked = rule.isEnabled, onCheckedChange = onToggle); IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) }
+            IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) }
         }
     }
 }
@@ -553,11 +591,11 @@ fun runRule(rule: AutoScheduleRule, events: List<EventInfo>, scheduler: AlarmSch
         val match = event.organizer?.contains(rule.organizerQuery, ignoreCase = true) == true || event.title.contains(rule.organizerQuery, ignoreCase = true)
         if (match) {
             val tm = event.startTime - (rule.leadTimeMinutes * 60 * 1000)
-            val existingIdx = if (event.source == EventSource.GOOGLE) activeAlarms.indexOfFirst { it.googleEventId == event.googleEventId } else activeAlarms.indexOfFirst { it.calendarEventId == event.id }
+            val existingIdx = activeAlarms.indexOfFirst { (it.googleEventId != null && it.googleEventId == event.googleEventId) || (it.calendarEventId != null && it.calendarEventId == event.id) }
             if (existingIdx != -1) {
                 val existing = activeAlarms[existingIdx]; if (existing.time != tm) { scheduler.cancelAlarm(existing.id); scheduler.scheduleAlarm(existing.id, tm, event.title); activeAlarms[existingIdx] = existing.copy(time = tm, sourceRuleId = rule.id); scheduledCount++ }
             } else {
-                val id = if (event.source == EventSource.GOOGLE) (event.googleEventId.hashCode() + rule.id).hashCode() else (event.id.toInt() + rule.id).hashCode()
+                val id = if (event.source == EventSource.CLOUD) (event.googleEventId.hashCode() + rule.id).hashCode() else (event.id.toInt() + rule.id).hashCode()
                 scheduler.scheduleAlarm(id, tm, event.title); activeAlarms.add(ScheduledAlarm(id, tm, event.title, calendarEventId = if (event.source == EventSource.LOCAL) event.id else null, googleEventId = event.googleEventId, googleRecurrenceInfo = event.recurrenceDetails, sourceRuleId = rule.id)); scheduledCount++
             }
         }
@@ -597,7 +635,9 @@ fun AlarmsTabScreen(activeAlarms: List<ScheduledAlarm>, onDelete: (ScheduledAlar
     var alarmSubTab by remember { mutableStateOf(0) }; val currentTime = System.currentTimeMillis(); val upcoming = activeAlarms.filter { it.time > currentTime }.sortedBy { it.time }; val past = activeAlarms.filter { it.time <= currentTime }.sortedByDescending { it.time }
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         TabRow(selectedTabIndex = alarmSubTab) { Tab(selected = alarmSubTab == 0, onClick = { alarmSubTab = 0 }, text = { Text("Upcoming") }); Tab(selected = alarmSubTab == 1, onClick = { alarmSubTab = 1 }, text = { Text("Past") }) }
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(8.dp))
+        Text(if(alarmSubTab == 0) "Alarms that are upcoming" else "Alarms that are expired", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+        Spacer(Modifier.height(8.dp))
         if (alarmSubTab == 0) { androidx.compose.foundation.lazy.LazyColumn { if (upcoming.isEmpty()) item { Text("No upcoming alarms.") } else items(upcoming) { AlarmCard(it, onEdit, onDelete) } } }
         else { androidx.compose.foundation.lazy.LazyColumn { if (past.isEmpty()) item { Text("No past alarms.") } else items(past) { AlarmCard(it, onEdit, onDelete, isPast = true) } } }
     }

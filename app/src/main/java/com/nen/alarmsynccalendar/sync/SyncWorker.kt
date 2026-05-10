@@ -44,7 +44,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val accounts: List<ConnectedCloudAccount> = try { gson.fromJson(accountsJson, accountType) } catch (e: Exception) { emptyList() }
 
         val allCloudEvents = mutableListOf<EventInfo>()
-        var anyAccountSynced = false
+        val syncedAccountEmails = mutableSetOf<String>()
         accounts.forEach { acc ->
             try {
                 if (acc.selectedCalendars.isNotEmpty()) {
@@ -55,12 +55,12 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                     val events = if (acc.provider == CloudProvider.GOOGLE) googleCalendarScanner.fetchEventsForAccount(acc.email, acc.selectedCalendars)
                                  else outlookCalendarScanner.fetchEventsForAccount(acc.email, token, acc.selectedCalendars)
                     allCloudEvents.addAll(events)
-                    anyAccountSynced = true
+                    syncedAccountEmails.add(acc.email)
                 }
             } catch (e: Exception) { Log.e("SyncWorker", "Failed account ${acc.email}: ${e.message}") }
         }
 
-        if (anyAccountSynced || accounts.isEmpty()) {
+        if (syncedAccountEmails.isNotEmpty() || accounts.isEmpty()) {
             prefs.edit().putString("cloud_events_cache", gson.toJson(allCloudEvents)).putLong("last_google_sync", System.currentTimeMillis()).apply()
         }
         
@@ -78,7 +78,8 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 }
 
                 if (event == null) {
-                    if (alarm.googleEventId == null || allCloudEvents.isNotEmpty() || accounts.isEmpty()) {
+                    // Safe deletion: only delete if the source account was successfully synced this cycle
+                    if (alarm.googleEventId == null || syncedAccountEmails.isNotEmpty()) {
                         alarmScheduler.cancelAlarm(alarm.id); iterator.remove(); changed = true
                     }
                 } else {
@@ -108,9 +109,13 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                     val match = event.organizer?.contains(rule.organizerQuery, ignoreCase = true) == true || event.title.contains(rule.organizerQuery, ignoreCase = true)
                     if (match) {
                         val targetTime = event.startTime - (rule.leadTimeMinutes * 60 * 1000)
-                        val existing = if (event.source == EventSource.GOOGLE) finalAlarms.find { it.googleEventId == event.googleEventId } else finalAlarms.find { it.calendarEventId == event.id }
+                        val existing = finalAlarms.find { 
+                            (it.googleEventId != null && it.googleEventId == event.googleEventId) || 
+                            (it.calendarEventId != null && it.calendarEventId == event.id)
+                        }
+                        
                         if (existing == null) {
-                            val id = if (event.source == EventSource.GOOGLE) (event.googleEventId.hashCode() + rule.id).hashCode() else (event.id.toInt() + rule.id).hashCode()
+                            val id = if (event.source == EventSource.CLOUD) (event.googleEventId.hashCode() + rule.id).hashCode() else (event.id.toInt() + rule.id).hashCode()
                             alarmScheduler.scheduleAlarm(id, targetTime, event.title)
                             finalAlarms.add(ScheduledAlarm(id, targetTime, event.title, calendarEventId = if (event.source == EventSource.LOCAL) event.id else null, googleEventId = event.googleEventId, googleRecurrenceInfo = event.recurrenceDetails, sourceRuleId = rule.id))
                             changed = true
