@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "com.nen.alarmsynccalendar"
-    compileSdk = 34
+    compileSdk = 35
 
     val keystorePropertiesFile = rootProject.file("keystore.properties")
     val keystoreProperties = Properties()
@@ -27,9 +27,9 @@ android {
     defaultConfig {
         applicationId = "com.nen.alarmsynccalendar"
         minSdk = 26
-        targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        targetSdk = 35
+        versionCode = 3
+        versionName = "1.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
