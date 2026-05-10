@@ -24,17 +24,16 @@ class OutlookCalendarScanner(private val context: Context) {
                 allEvents.addAll(fetchEventsFromCalendar(token, calId, email))
             }
             val now = System.currentTimeMillis()
-            val refined = allEvents.groupBy { it.recurringEventId ?: it.googleEventId }
+            val refined = allEvents
+                .filter { it.startTime > now }
+                .groupBy { it.recurringEventId ?: it.googleEventId }
                 .map { (_, instances) ->
-                    instances.sortedBy { it.startTime }.firstOrNull { it.startTime > now } ?: instances.last()
+                    instances.sortedBy { it.startTime }.first()
                 }
             refined
         } catch (e: Exception) {
             Log.e("CAL_DEBUG", "Error syncing Outlook $email: ${e.message}", e)
-            withContext(Dispatchers.Main) {
-                Toast.makeText(context, "Outlook Sync Error ($email): ${e.message}", Toast.LENGTH_LONG).show()
-            }
-            emptyList()
+            throw e
         }
     }
 

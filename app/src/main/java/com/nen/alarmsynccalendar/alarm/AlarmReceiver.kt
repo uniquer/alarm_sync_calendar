@@ -45,6 +45,7 @@ class AlarmReceiver : BroadcastReceiver() {
             
             if (alarmIndex != -1) {
                 val alarm = alarms[alarmIndex]
+                
                 if (alarm.recurrenceType != RecurrenceType.NONE) {
                     val nextTime = RecurrenceUtils.calculateNextOccurrence(
                         alarm.time, 

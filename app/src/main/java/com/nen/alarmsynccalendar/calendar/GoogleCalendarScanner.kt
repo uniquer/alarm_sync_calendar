@@ -51,23 +51,19 @@ class GoogleCalendarScanner(private val context: Context) {
                 allEvents.addAll(events)
             }
             
-            // Refine: Only keep the earliest upcoming instance for any recurring series
+            // Refine: Only keep upcoming instances for any series/event
             val now = System.currentTimeMillis()
             val refinedEvents = allEvents
+                .filter { it.startTime > now }
                 .groupBy { it.recurringEventId ?: it.googleEventId } 
                 .map { (_, instances) ->
-                    instances.sortedBy { it.startTime }
-                        .firstOrNull { it.startTime > now }
-                        ?: instances.last() // If all are past, keep the most recent one
+                    instances.sortedBy { it.startTime }.first()
                 }
 
             refinedEvents
         } catch (e: Exception) {
             Log.e("CAL_DEBUG", "Error syncing $email: ${e.message}", e)
-            withContext(Dispatchers.Main) {
-                Toast.makeText(context, "Sync Error ($email): ${e.message}", Toast.LENGTH_LONG).show()
-            }
-            emptyList<EventInfo>()
+            throw e
         }
     }
 
