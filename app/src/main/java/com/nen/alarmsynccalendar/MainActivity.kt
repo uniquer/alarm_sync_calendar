@@ -336,17 +336,22 @@ fun MainScreen(
     if (showAboutDialog) AboutDialog({ showAboutDialog = false }, { (context as MainActivity).openSettings() }, { (context as MainActivity).openOEMSettings() })
     if (showEditDialog) AlarmEditDialog(alarmToEdit, { showEditDialog = false; alarmToEdit = null }, { t, tm, rt, rd ->
         var f = tm; if (f < System.currentTimeMillis() && rt != RecurrenceType.NONE) f = RecurrenceUtils.calculateNextOccurrence(f, rt, rd)
-        if (alarmToEdit != null) {
-            alarmScheduler.cancelAlarm(alarmToEdit!!.id)
-            val idx = activeAlarms.indexOfFirst { it.id == alarmToEdit!!.id }
-            val u = alarmToEdit!!.copy(time = f, message = t, recurrenceType = rt, recurrenceData = rd)
-            alarmScheduler.scheduleAlarm(u.id, f, t)
-            if (idx != -1) activeAlarms[idx] = u
+        
+        if (f < System.currentTimeMillis()) {
+            Toast.makeText(context, "Cannot set alarm in the past!", Toast.LENGTH_SHORT).show()
         } else {
-            val id = System.currentTimeMillis().toInt(); val n = ScheduledAlarm(id, f, t, recurrenceType = rt, recurrenceData = rd)
-            alarmScheduler.scheduleAlarm(id, f, t); activeAlarms.add(n)
+            if (alarmToEdit != null) {
+                alarmScheduler.cancelAlarm(alarmToEdit!!.id)
+                val idx = activeAlarms.indexOfFirst { it.id == alarmToEdit!!.id }
+                val u = alarmToEdit!!.copy(time = f, message = t, recurrenceType = rt, recurrenceData = rd)
+                alarmScheduler.scheduleAlarm(u.id, f, t)
+                if (idx != -1) activeAlarms[idx] = u
+            } else {
+                val id = System.currentTimeMillis().toInt(); val n = ScheduledAlarm(id, f, t, recurrenceType = rt, recurrenceData = rd)
+                alarmScheduler.scheduleAlarm(id, f, t); activeAlarms.add(n)
+            }
+            onSave(); showEditDialog = false; alarmToEdit = null
         }
-        onSave(); showEditDialog = false; alarmToEdit = null
     })
     if (showRuleDialog) RuleEditDialog(ruleToEdit, { showRuleDialog = false; ruleToEdit = null }, { q, l ->
         val rule = if (ruleToEdit != null) {

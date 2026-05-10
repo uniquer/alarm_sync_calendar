@@ -13,25 +13,31 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 import android.os.Build
-import android.media.Ringtone
+import android.media.MediaPlayer
+import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Vibrator
 import android.os.VibrationEffect
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 
 import android.app.NotificationManager
 import android.content.Intent
 import android.app.KeyguardManager
 
 class AlarmActivity : ComponentActivity() {
-    private var ringtone: Ringtone? = null
+    private var mediaPlayer: MediaPlayer? = null
     private var vibrator: Vibrator? = null
+    private val autoDismissHandler = Handler(Looper.getMainLooper())
+    private val autoDismissRunnable = Runnable { dismissAlarm() }
+    private var alarmId: Int = -1
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
         val message = intent.getStringExtra("ALARM_MESSAGE") ?: "Meeting Alarm!"
-        val id = intent.getIntExtra("ALARM_ID", -1)
+        alarmId = intent.getIntExtra("ALARM_ID", -1)
 
         // Wake the screen and show over lockscreen
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
@@ -52,11 +58,26 @@ class AlarmActivity : ComponentActivity() {
         
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        // Start Ringtone
+        // Start Ringtone with MediaPlayer for continuous looping
         val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
             ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-        ringtone = RingtoneManager.getRingtone(applicationContext, alarmUri)
-        ringtone?.play()
+            
+        try {
+            mediaPlayer = MediaPlayer().apply {
+                setDataSource(applicationContext, alarmUri)
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                )
+                isLooping = true
+                prepare()
+                start()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
 
         // Start Vibration
         vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
@@ -67,32 +88,42 @@ class AlarmActivity : ComponentActivity() {
             vibrator?.vibrate(longArrayOf(0, 500, 500), 0)
         }
 
+        // Auto-dismiss the alarm after 10 minutes to save battery
+        autoDismissHandler.postDelayed(autoDismissRunnable, 10 * 60 * 1000L)
+
         setContent {
-            AlarmScreen(message = message, onDismiss = { 
-                try {
-                    ringtone?.stop()
-                    vibrator?.cancel()
-                    if (id != -1) {
-                        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                        notificationManager.cancel(id)
-                    }
-                    val homeIntent = Intent(Intent.ACTION_MAIN).apply {
-                        addCategory(Intent.CATEGORY_HOME)
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                    }
-                    startActivity(homeIntent)
-                    finishAndRemoveTask()
-                } catch (e: Exception) {
-                    finish()
-                }
-            })
+            AlarmScreen(message = message, onDismiss = { dismissAlarm() })
+        }
+    }
+
+    private fun dismissAlarm() {
+        try {
+            mediaPlayer?.stop()
+            mediaPlayer?.release()
+            mediaPlayer = null
+            vibrator?.cancel()
+            autoDismissHandler.removeCallbacks(autoDismissRunnable)
+            
+            if (alarmId != -1) {
+                val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                notificationManager.cancel(alarmId)
+            }
+            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            startActivity(homeIntent)
+            finishAndRemoveTask()
+        } catch (e: Exception) {
+            finish()
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        ringtone?.stop()
+        mediaPlayer?.release()
         vibrator?.cancel()
+        autoDismissHandler.removeCallbacks(autoDismissRunnable)
     }
 }
 
@@ -107,8 +138,6 @@ fun AlarmScreen(message: String, onDismiss: () -> Unit) {
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(text = "ALARM", fontSize = 48.sp, color = MaterialTheme.colorScheme.onErrorContainer)
-            Spacer(modifier = Modifier.height(16.dp))
             Text(text = message, fontSize = 24.sp, color = MaterialTheme.colorScheme.onErrorContainer)
             Spacer(modifier = Modifier.height(48.dp))
             Button(

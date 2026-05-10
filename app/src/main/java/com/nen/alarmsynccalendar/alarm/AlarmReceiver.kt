@@ -54,14 +54,19 @@ class AlarmReceiver : BroadcastReceiver() {
                     
                     Log.d("AlarmReceiver", "Chaining recurring alarm ${alarm.id} from ${alarm.time} to $nextTime")
                     
-                    val updatedAlarm = alarm.copy(time = nextTime)
-                    alarms[alarmIndex] = updatedAlarm
+                    // Modify current alarm to be a one-time past event so it stays in history
+                    alarms[alarmIndex] = alarm.copy(recurrenceType = RecurrenceType.NONE)
+                    
+                    // Create and schedule the new future instance
+                    val newId = System.currentTimeMillis().toInt()
+                    val nextAlarm = alarm.copy(id = newId, time = nextTime)
+                    alarms.add(nextAlarm)
                     
                     // Save updated list
                     prefs.edit().putString("alarm_list", gson.toJson(alarms)).apply()
                     
                     // Schedule the next instance
-                    AlarmScheduler(context).scheduleAlarm(updatedAlarm.id, updatedAlarm.time, updatedAlarm.message)
+                    AlarmScheduler(context).scheduleAlarm(nextAlarm.id, nextAlarm.time, nextAlarm.message)
                 }
             }
         } catch (e: Exception) {
