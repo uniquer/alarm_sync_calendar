@@ -198,7 +198,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 
         val enabledRules = rules.filter { it.isEnabled }
         if (enabledRules.isNotEmpty()) {
-            val allFutureEvents: List<EventInfo> = localEvents + allCloudEvents
+            val allFutureEvents: List<EventInfo> = (allCloudEvents + localEvents).distinctBy { "${it.title}|${it.startTime}" }
             enabledRules.forEach { rule ->
                 allFutureEvents.forEach { event ->
                     val match = event.organizer?.contains(rule.organizerQuery, ignoreCase = true) == true || event.title.contains(rule.organizerQuery, ignoreCase = true)

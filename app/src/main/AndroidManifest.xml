@@ -53,6 +53,14 @@
             </intent-filter>
         </receiver>
 
+        <receiver
+            android:name=".sync.SyncTriggerReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.USER_PRESENT" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
 </manifest>

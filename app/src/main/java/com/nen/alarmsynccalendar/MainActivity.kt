@@ -381,8 +381,20 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun scheduleSync() {
+        // 1. Standard WorkManager Sync (Subject to Doze mode)
         val req = PeriodicWorkRequestBuilder<SyncWorker>(15, TimeUnit.MINUTES).setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build()
         WorkManager.getInstance(this).enqueueUniquePeriodicWork("CalendarSync", ExistingPeriodicWorkPolicy.UPDATE, req)
+        
+        // 2. AlarmManager Fallback (Force sync even in deep sleep every 2 hours)
+        val alarmManager = getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+        val intent = Intent(this, com.nen.alarmsynccalendar.sync.SyncTriggerReceiver::class.java)
+        val pendingIntent = android.app.PendingIntent.getBroadcast(this, 999, intent, android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE)
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            alarmManager.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + (2 * 60 * 60 * 1000L), pendingIntent)
+        } else {
+            alarmManager.set(android.app.AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + (2 * 60 * 60 * 1000L), pendingIntent)
+        }
     }
     private fun saveAlarms() { getSharedPreferences("alarms", Context.MODE_PRIVATE).edit().putString("alarm_list", gson.toJson(activeAlarms.toList())).apply() }
     private fun saveRules() { getSharedPreferences("alarms", Context.MODE_PRIVATE).edit().putString("rule_list", gson.toJson(activeRules.toList())).apply() }

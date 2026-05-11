@@ -5,28 +5,33 @@ CalAlarm Sync is a professional Android utility designed to bridge the gap betwe
 
 ## Core Features
 1.  **Multi-Platform Cloud Sync:** Direct integration with Google Calendar (REST API v3) and Microsoft Outlook (Microsoft Graph API).
-2.  **Unified Sync Engine:** Background worker that monitors all connected accounts and sub-calendars (shared, corporate, holiday) simultaneously.
+2.  **Multi-Layer Sync Engine:** A redundant synchronization strategy designed for 100% reliability:
+    *   **WorkManager:** Standard periodic sync every 15 minutes (battery-efficient).
+    *   **User-Present Trigger:** Immediate silent sync triggered every time the user unlocks their phone (`ACTION_USER_PRESENT`).
+    *   **AlarmManager Fallback:** A high-priority "Forced Sync" every 2 hours using `setAndAllowWhileIdle` to bypass Android Doze mode and Deep Sleep.
 3.  **Sub-Calendar Customization:** Users can toggle individual sub-calendars for each account. These selections are **persistently saved** and restored across app launches.
 4.  **Recurring Alarm Chaining:** A custom logic that ensures only ONE active alarm entry exists for a recurring meeting, automatically scheduling the next instance once the current one fires.
 5.  **Auto-Schedule Rules:** Powerful regex-based rules that match event titles and organizers to automatically create alarms with custom lead times.
-6.  **Offline-First Local Storage:** All cloud events and user-defined alarms are **stored locally** in SharedPreferences. The app operates instantly on launch using this local cache, with background updates ensuring freshness.
-7.  **Reliability-First Alarms:** Uses `AlarmManager` with Exact Alarms, WakeLocks, and custom OEM permission guidance to ensure alarms fire even if the device is asleep or locked.
+6.  **Offline-First Local Storage:** All cloud events and user-defined alarms are **stored locally** in SharedPreferences. Android Auto-Backup is explicitly disabled (`allowBackup="false"`) to ensure data remains strictly on the physical device.
+7.  **Diagnostic Sync Logs:** Integrated "View Logs" feature allowing users to monitor background activity and troubleshoot OEM-specific battery restrictions.
+8.  **Reliability-First Alarms:** Uses `AlarmManager` with Exact Alarms, WakeLocks, and custom Android 15 (API 35) Full Screen Intent handling to ensure alarms fire even if the device is asleep or locked.
 
 ## Architecture
 -   **UI Layer:** 100% Jetpack Compose using Material 3 design standards. Follows a Single Activity architecture (`MainActivity`).
--   **Background Layer:** `WorkManager` performs a periodic sync cycle every 15 minutes.
+-   **Background Layer:** `WorkManager` for standard cycles, and `BroadcastReceivers` for system-level triggers (Boot, Unlock, Alarms).
 -   **Data Layer:** Persistent storage via `SharedPreferences` with `GSON` serialization for all models (Alarms, Rules, Accounts, Caches).
--   **Security:** OAuth 2.0 based authentication using `GoogleSignInClient` and `AppAuth` for Android. No user passwords are ever stored.
+-   **Security:** OAuth 2.0 based authentication with persistent token refresh logic. No user passwords are ever stored.
 -   **Networking:** Lightweight `HttpURLConnection` for REST API calls to minimize app size and dependencies.
 
 ## Technical Stack
 -   **Language:** Kotlin
 -   **UI:** Jetpack Compose, Material 3
--   **Auth:** Google Play Services Auth, OpenID AppAuth
+-   **Target SDK:** API 35 (Android 15)
+-   **Auth:** Google Play Services Auth, OpenID AppAuth (Microsoft Graph)
 -   **Networking:** Java standard HttpURLConnection
 -   **Serialization:** Google Gson
--   **Background Processing:** Android WorkManager
--   **Scheduling:** Android AlarmManager, BroadcastReceivers
+-   **Background Processing:** Android WorkManager, AlarmManager, BroadcastReceivers
+-   **Scheduling:** Android AlarmManager, NotificationManager (Full Screen Intents)
 
 ## Design Philosophy
 The app follows a "Source of Truth" philosophy where the Cloud is the master record. The local phone state is forced to synchronize with the cloud every 15 minutes, ensuring that if a user changes a meeting on their computer, their phone alarm updates automatically within minutes.
