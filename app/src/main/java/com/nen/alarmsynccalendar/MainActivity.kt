@@ -498,7 +498,23 @@ fun AboutDialog(onDismiss: () -> Unit, onOpenSettings: () -> Unit, onOpenOEM: ()
     val m = android.os.Build.MANUFACTURER.lowercase()
     val isKnown = m.contains("xiaomi") || m.contains("oppo") || m.contains("realme") || m.contains("vivo")
     val context = androidx.compose.ui.platform.LocalContext.current
+    var showLogs by remember { mutableStateOf(false) }
     
+    if (showLogs) {
+        val logs = context.getSharedPreferences("sync_logs", Context.MODE_PRIVATE).getString("history", "No logs found.") ?: ""
+        AlertDialog(
+            onDismissRequest = { showLogs = false },
+            title = { Text("Background Sync Logs") },
+            text = { 
+                androidx.compose.foundation.lazy.LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
+                    item { Text(logs, style = MaterialTheme.typography.bodySmall, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace) }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showLogs = false }) { Text("Back") } },
+            dismissButton = { TextButton(onClick = { context.getSharedPreferences("sync_logs", Context.MODE_PRIVATE).edit().clear().apply(); showLogs = false }) { Text("Clear Logs", color = Color.Red) } }
+        )
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("About & Privacy") },
@@ -515,8 +531,13 @@ fun AboutDialog(onDismiss: () -> Unit, onOpenSettings: () -> Unit, onOpenOEM: ()
                     Text("• Auto-start\n• Battery: 'Unrestricted'\n• Show on Lock screen\n• Display over other apps", style = MaterialTheme.typography.bodySmall)
                     
                     Spacer(Modifier.height(8.dp))
-                    Button(onClick = if (isKnown) onOpenOEM else onOpenSettings, modifier = Modifier.fillMaxWidth()) {
-                        Text(if (isKnown) "Open Device Settings" else "Open App Info")
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = if (isKnown) onOpenOEM else onOpenSettings, modifier = Modifier.weight(1f)) {
+                            Text(if (isKnown) "Settings" else "App Info")
+                        }
+                        OutlinedButton(onClick = { showLogs = true }, modifier = Modifier.weight(1f)) {
+                            Text("View Logs")
+                        }
                     }
 
                     Spacer(Modifier.height(16.dp))

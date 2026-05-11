@@ -19,6 +19,9 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import android.provider.CalendarContract
 import com.google.android.gms.auth.GoogleAuthUtil
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.Date
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -32,6 +35,14 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
     private val calendarScanner = CalendarScanner(context)
     private val googleCalendarScanner = GoogleCalendarScanner(context)
     private val outlookCalendarScanner = OutlookCalendarScanner(context)
+
+    private fun logSyncEvent(context: Context, message: String) {
+        val prefs = context.getSharedPreferences("sync_logs", Context.MODE_PRIVATE)
+        val logs = prefs.getString("history", "") ?: ""
+        val timestamp = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date())
+        val newLogs = "[$timestamp] $message\n$logs".take(5000) // Keep last 5k chars
+        prefs.edit().putString("history", newLogs).apply()
+    }
 
     private suspend fun refreshOutlookToken(acc: ConnectedCloudAccount): String? = withContext(Dispatchers.IO) {
         if (acc.refreshToken == null) return@withContext null
@@ -47,12 +58,27 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 val response = conn.inputStream.bufferedReader().readText()
                 val json = JSONObject(response)
                 val newAccess = json.getString("access_token")
-                acc.accessToken = newAccess
-                json.optString("refresh_token", null)?.let { acc.refreshToken = it }
-                // Note: It's a worker so we don't save to SharedPreferences here, it gets saved when MainActivity loads
+                val newRefresh = json.optString("refresh_token", acc.refreshToken)
+                
+                // SAVE IMMEDIATELY to avoid losing token on next sync
+                val prefs = applicationContext.getSharedPreferences("alarms", Context.MODE_PRIVATE)
+                val accountsJson = prefs.getString("google_accounts_v3", "[]") ?: "[]"
+                val accountType = object : TypeToken<List<ConnectedCloudAccount>>() {}.type
+                val accounts: MutableList<ConnectedCloudAccount> = gson.fromJson(accountsJson, accountType)
+                val idx = accounts.indexOfFirst { it.email == acc.email }
+                if (idx != -1) {
+                    accounts[idx] = accounts[idx].copy(accessToken = newAccess, refreshToken = newRefresh)
+                    prefs.edit().putString("google_accounts_v3", gson.toJson(accounts)).apply()
+                }
+                
                 return@withContext newAccess
+            } else {
+                logSyncEvent(applicationContext, "Outlook Token Error: ${conn.responseCode}")
             }
-        } catch (e: Exception) { Log.e("SyncWorker", "Outlook Token Refresh Error", e) }
+        } catch (e: Exception) { 
+            Log.e("SyncWorker", "Outlook Token Refresh Error", e) 
+            logSyncEvent(applicationContext, "Outlook Refresh Fail: ${e.message}")
+        }
         null
     }
 
@@ -75,6 +101,11 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         val accounts: List<ConnectedCloudAccount> = try { gson.fromJson(accountsJson, accountType) } catch (e: Exception) { emptyList() }
         val cachedEvents: List<EventInfo> = try { gson.fromJson(cachedEventsJson, eventType) } catch (e: Exception) { emptyList() }
 
+        if (accounts.isEmpty()) {
+            logSyncEvent(applicationContext, "Sync skipped: No accounts connected")
+            return Result.success()
+        }
+
         val allCloudEvents = mutableListOf<EventInfo>()
         val syncedAccountEmails = mutableSetOf<String>()
         accounts.forEach { acc ->
@@ -90,9 +121,11 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                                  else outlookCalendarScanner.fetchEventsForAccount(acc.email, token, acc.selectedCalendars)
                     allCloudEvents.addAll(events)
                     syncedAccountEmails.add(acc.email)
+                    logSyncEvent(applicationContext, "Sync Success: ${acc.email} (${events.size} events)")
                 }
             } catch (e: Exception) { 
                 Log.e("SyncWorker", "Failed account ${acc.email}: ${e.message}")
+                logSyncEvent(applicationContext, "Sync Failed: ${acc.email} (${e.message})")
                 allCloudEvents.addAll(cachedEvents.filter { it.accountEmail == acc.email })
             }
         }
