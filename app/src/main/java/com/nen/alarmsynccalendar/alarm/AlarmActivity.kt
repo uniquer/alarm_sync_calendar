@@ -6,9 +6,14 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -129,22 +134,58 @@ class AlarmActivity : ComponentActivity() {
 
 @Composable
 fun AlarmScreen(message: String, onDismiss: () -> Unit) {
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.errorContainer
-    ) {
-        Column(
+    val darkColorScheme = darkColorScheme(
+        primary = Color.White,
+        onPrimary = Color.Black,
+        surface = Color.Black,
+        onSurface = Color.White,
+        background = Color.Black,
+        onBackground = Color.White
+    )
+
+    MaterialTheme(colorScheme = darkColorScheme) {
+        Surface(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
+            color = Color.Black
         ) {
-            Text(text = message, fontSize = 24.sp, color = MaterialTheme.colorScheme.onErrorContainer)
-            Spacer(modifier = Modifier.height(48.dp))
-            Button(
-                onClick = onDismiss,
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.onError)
+            Column(
+                modifier = Modifier.fillMaxSize().padding(32.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(text = "Dismiss", color = MaterialTheme.colorScheme.error)
+                Icon(
+                    imageVector = Icons.Default.NotificationsActive,
+                    contentDescription = null,
+                    modifier = Modifier.size(100.dp),
+                    tint = Color.White
+                )
+                Spacer(modifier = Modifier.height(48.dp))
+                Text(
+                    text = message,
+                    fontSize = 48.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    textAlign = TextAlign.Center,
+                    lineHeight = 56.sp
+                )
+                Spacer(modifier = Modifier.height(80.dp))
+                Button(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(90.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.White,
+                        contentColor = Color.Black
+                    ),
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)
+                ) {
+                    Text(
+                        text = "DISMISS",
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.ExtraBold
+                    )
+                }
             }
         }
     }

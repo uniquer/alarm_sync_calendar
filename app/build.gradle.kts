@@ -94,4 +94,5 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.9.0")
     implementation("com.google.android.gms:play-services-auth:21.0.0")
     implementation("net.openid:appauth:0.11.1")
+    testImplementation("junit:junit:4.13.2")
 }
