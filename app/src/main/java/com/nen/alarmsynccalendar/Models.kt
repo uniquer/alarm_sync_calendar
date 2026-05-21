@@ -2,6 +2,7 @@ package com.nen.alarmsynccalendar
 
 enum class RecurrenceType { NONE, DAILY, WEEKLY, MONTHLY }
 enum class CloudProvider { GOOGLE, OUTLOOK }
+enum class AccountSyncStatus { OK, AUTH_ERROR, TIMEOUT, NETWORK_ERROR }
 
 data class EventInfo(
     val id: Long,
@@ -37,7 +38,8 @@ data class ConnectedCloudAccount(
     var accessToken: String? = null,
     var refreshToken: String? = null,
     var isExpanded: Boolean = true,
-    var hasAuthError: Boolean = false
+    // nullable for JSON back-compat with older stored data; null is treated as OK
+    val syncStatus: AccountSyncStatus? = null
 )
 
 data class ExcludedEvent(

@@ -123,13 +123,24 @@ fun AlarmsTabScreen(activeAlarms: List<ScheduledAlarm>, onDelete: (ScheduledAlar
         }
         Spacer(Modifier.height(16.dp))
         
-        LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 80.dp)) {
-            if (subTab == 0) {
-                if (upcoming.isEmpty()) item { Text("No upcoming alarms.") }
-                else items(upcoming) { AlarmCard(it, onEdit, { alarm -> alarmToDelete = alarm }) }
-            } else if (subTab == 1) {
-                if (past.isEmpty()) item { Text("No past alarms.") }
-                else items(past) { AlarmCard(it, onEdit, { alarm -> alarmToDelete = alarm }, isPast = true) }
+        if (subTab == 0 && upcoming.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
+                    Icon(Icons.Default.Alarm, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.outline)
+                    Spacer(Modifier.height(16.dp))
+                    Text("No upcoming alarms", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Tap + to create a local alarm, or connect a calendar from the Calendars tab.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                }
+            }
+        } else {
+            LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 80.dp)) {
+                if (subTab == 0) {
+                    items(upcoming) { AlarmCard(it, onEdit, { alarm -> alarmToDelete = alarm }) }
+                } else if (subTab == 1) {
+                    if (past.isEmpty()) item { Text("No past alarms.", modifier = Modifier.padding(top = 16.dp)) }
+                    else items(past) { AlarmCard(it, onEdit, { alarm -> alarmToDelete = alarm }, isPast = true) }
+                }
             }
         }
     }
@@ -183,8 +194,20 @@ fun CalendarsTabScreen(cloudEvents: List<EventInfo>, accounts: List<ConnectedClo
                                     Text(acc.email, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                                     Text("${accountEvents.size} events in next 60 days", style = MaterialTheme.typography.labelSmall)
                                 }
-                                if (acc.hasAuthError) {
-                                    Icon(Icons.Default.Error, contentDescription = "Sync Error", tint = MaterialTheme.colorScheme.error, modifier = Modifier.padding(end = 8.dp))
+                                when (acc.syncStatus) {
+                                    AccountSyncStatus.AUTH_ERROR -> Icon(
+                                        Icons.Default.Error, contentDescription = "Auth Error — re-connect account",
+                                        tint = MaterialTheme.colorScheme.error, modifier = Modifier.padding(end = 8.dp)
+                                    )
+                                    AccountSyncStatus.TIMEOUT -> Icon(
+                                        Icons.Default.Schedule, contentDescription = "Last sync timed out",
+                                        tint = Color(0xFFFF9800), modifier = Modifier.padding(end = 8.dp)
+                                    )
+                                    AccountSyncStatus.NETWORK_ERROR -> Icon(
+                                        Icons.Default.CloudOff, contentDescription = "Network error — showing cached events",
+                                        tint = Color(0xFFFF6D00), modifier = Modifier.padding(end = 8.dp)
+                                    )
+                                    else -> {} // OK or null — no icon
                                 }
                                 IconButton(onClick = { accountToDelete = acc.email }) { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) }
                             }

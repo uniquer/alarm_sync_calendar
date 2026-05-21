@@ -57,23 +57,22 @@ class GoogleCalendarScanner(private val context: Context) {
         val start = sdf.format(Date()); val end = sdf.format(Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 60) }.time)
         val encodedId = java.net.URLEncoder.encode(calendarId, "UTF-8")
         val url = URL("https://www.googleapis.com/calendar/v3/calendars/$encodedId/events?timeMin=$start&timeMax=$end&singleEvents=true&orderBy=startTime")
-        try {
-            val conn = url.openConnection() as HttpURLConnection
-            conn.setRequestProperty("Authorization", "Bearer $token")
-            if (conn.responseCode == 200) {
-                val items = JSONObject(conn.inputStream.bufferedReader().readText()).optJSONArray("items")
-                if (items != null) for (i in 0 until items.length()) {
-                    val item = items.getJSONObject(i)
-                    if (item.optString("status") == "cancelled") continue
-                    val id = item.getString("id")
-                    val recurringId = item.optString("recurringEventId").takeIf { it.isNotBlank() }
-                    val startStr = item.optJSONObject("start")?.optString("dateTime") ?: item.optJSONObject("start")?.optString("date") ?: ""
-                    if (startStr.isEmpty()) continue
-                    val org = item.optJSONObject("organizer")?.optString("email") ?: "Unknown"
-                    events.add(EventInfo(id.hashCode().toLong(), id, recurringId, recurringId != null || item.has("recurrence"), null, item.optString("summary", "No Title"), parseIso(startStr), 0L, null, org, email))
-                }
+        // Let IOException propagate — callers (SyncRepository) catch it and fall back to cache.
+        val conn = url.openConnection() as HttpURLConnection
+        conn.setRequestProperty("Authorization", "Bearer $token")
+        if (conn.responseCode == 200) {
+            val items = JSONObject(conn.inputStream.bufferedReader().readText()).optJSONArray("items")
+            if (items != null) for (i in 0 until items.length()) {
+                val item = items.getJSONObject(i)
+                if (item.optString("status") == "cancelled") continue
+                val id = item.getString("id")
+                val recurringId = item.optString("recurringEventId").takeIf { it.isNotBlank() }
+                val startStr = item.optJSONObject("start")?.optString("dateTime") ?: item.optJSONObject("start")?.optString("date") ?: ""
+                if (startStr.isEmpty()) continue
+                val org = item.optJSONObject("organizer")?.optString("email") ?: "Unknown"
+                events.add(EventInfo(id.hashCode().toLong(), id, recurringId, recurringId != null || item.has("recurrence"), null, item.optString("summary", "No Title"), parseIso(startStr), 0L, null, org, email))
             }
-        } catch (e: Exception) { Log.e("CAL_DEBUG", "Fetch error: ${e.message}") }
+        }
         return events
     }
 

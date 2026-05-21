@@ -47,22 +47,21 @@ class OutlookCalendarScanner(private val context: Context) {
         val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
         val start = sdf.format(Date()); val end = sdf.format(Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 60) }.time)
         val url = URL("https://graph.microsoft.com/v1.0/$calendarPath/calendarView?startDateTime=$start&endDateTime=$end")
-        try {
-            val conn = url.openConnection() as HttpURLConnection
-            conn.setRequestProperty("Authorization", "Bearer $token")
-            conn.setRequestProperty("Prefer", "outlook.timezone=\"UTC\"")
-            if (conn.responseCode == 200) {
-                val value = JSONObject(conn.inputStream.bufferedReader().readText()).optJSONArray("value")
-                if (value != null) for (i in 0 until value.length()) {
-                    val item = value.getJSONObject(i)
-                    val id = item.getString("id")
-                    val seriesId = item.optString("seriesMasterId").takeIf { it != "null" && it.isNotBlank() }
-                    val startTs = parseIso(item.getJSONObject("start").getString("dateTime"))
-                    val org = item.optJSONObject("organizer")?.optJSONObject("emailAddress")?.optString("address") ?: "Unknown"
-                    events.add(EventInfo(id.hashCode().toLong(), id, seriesId, seriesId != null, null, item.optString("subject", "No Title"), startTs, 0L, null, org, email))
-                }
+        // Let IOException propagate — callers (SyncRepository) catch it and fall back to cache.
+        val conn = url.openConnection() as HttpURLConnection
+        conn.setRequestProperty("Authorization", "Bearer $token")
+        conn.setRequestProperty("Prefer", "outlook.timezone=\"UTC\"")
+        if (conn.responseCode == 200) {
+            val value = JSONObject(conn.inputStream.bufferedReader().readText()).optJSONArray("value")
+            if (value != null) for (i in 0 until value.length()) {
+                val item = value.getJSONObject(i)
+                val id = item.getString("id")
+                val seriesId = item.optString("seriesMasterId").takeIf { it != "null" && it.isNotBlank() }
+                val startTs = parseIso(item.getJSONObject("start").getString("dateTime"))
+                val org = item.optJSONObject("organizer")?.optJSONObject("emailAddress")?.optString("address") ?: "Unknown"
+                events.add(EventInfo(id.hashCode().toLong(), id, seriesId, seriesId != null, null, item.optString("subject", "No Title"), startTs, 0L, null, org, email))
             }
-        } catch (e: Exception) { Log.e("CAL_DEBUG", "Outlook fetch error: ${e.message}") }
+        }
         return events
     }
 
