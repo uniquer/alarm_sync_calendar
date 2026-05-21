@@ -2,6 +2,7 @@ package com.nen.alarmsynccalendar
 
 import android.app.Application
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.compose.runtime.*
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -25,7 +26,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = SyncRepository(app)
     val alarmScheduler = AlarmScheduler(app)
 
+    private val preferenceChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        viewModelScope.launch {
+            when (key) {
+                "alarm_list" -> loadAlarms()
+                "cloud_events_cache" -> loadCloudEventsCache()
+                "google_accounts_v3" -> loadAccounts()
+                "excluded_list" -> loadExcluded()
+            }
+        }
+    }
+
     init {
+        prefs().registerOnSharedPreferenceChangeListener(preferenceChangeListener)
         loadAccounts()
         loadCloudEventsCache()
         checkCloudConnection()
@@ -222,4 +235,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun prefs() = getApplication<Application>().getSharedPreferences("alarms", Context.MODE_PRIVATE)
+
+    override fun onCleared() {
+        super.onCleared()
+        prefs().unregisterOnSharedPreferenceChangeListener(preferenceChangeListener)
+    }
 }

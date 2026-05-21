@@ -18,6 +18,7 @@ keystore.properties
 # Private Agent Memory (Keep GEMINI.md, ignore MEMORY.md)
 MEMORY.md
 .gemini/
+.antigravitycli/
 
 # Captures and logs
 captures/

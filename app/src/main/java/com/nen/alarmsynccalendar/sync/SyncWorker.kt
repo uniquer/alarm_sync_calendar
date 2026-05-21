@@ -15,6 +15,11 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
     private val repo = SyncRepository(context)
 
     override suspend fun doWork(): Result {
+        val trigger = inputData.getString("trigger") ?: "Timer Triggered (Periodic)"
+        
+        val syncPrefs = applicationContext.getSharedPreferences("sync_logs", Context.MODE_PRIVATE)
+        syncPrefs.edit().putLong("last_execution_time", System.currentTimeMillis()).apply()
+
         val prefs = applicationContext.getSharedPreferences("alarms", Context.MODE_PRIVATE)
 
         val accounts: List<ConnectedCloudAccount> = try {
@@ -25,7 +30,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         } catch (e: Exception) { emptyList() }
 
         if (accounts.isEmpty()) {
-            log("Sync skipped: no accounts connected")
+            log("[$trigger] Sync skipped: no accounts connected")
             return Result.success()
         }
 
@@ -34,7 +39,10 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 prefs.getString("alarm_list", "[]") ?: "[]",
                 object : TypeToken<List<ScheduledAlarm>>() {}.type
             )
-        } catch (e: Exception) { return Result.failure() }
+        } catch (e: Exception) {
+            log("[$trigger] Sync failed: error reading alarms data")
+            return Result.failure()
+        }
 
         val cachedEvents: List<EventInfo> = try {
             gson.fromJson(
@@ -83,7 +91,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             prefs.edit().putString("alarm_list", gson.toJson(newAlarms)).apply()
         }
 
-        log("Background sync complete — ${syncedEmails.size}/${accounts.size} accounts OK")
+        log("[$trigger] Sync complete — ${syncedEmails.size}/${accounts.size} accounts OK")
         return Result.success()
     }
 

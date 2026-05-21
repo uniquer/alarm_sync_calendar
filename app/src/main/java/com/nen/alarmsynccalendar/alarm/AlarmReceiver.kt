@@ -46,6 +46,16 @@ class AlarmReceiver : BroadcastReceiver() {
             if (alarmIndex != -1) {
                 val alarm = alarms[alarmIndex]
                 
+                // If this is a calendar-linked alarm, trigger an immediate background sync to update cache and reschedule recurring series
+                if (alarm.googleEventId != null) {
+                    val req = androidx.work.OneTimeWorkRequestBuilder<com.nen.alarmsynccalendar.sync.SyncWorker>().build()
+                    androidx.work.WorkManager.getInstance(context).enqueueUniqueWork(
+                        "ImmediateSync",
+                        androidx.work.ExistingWorkPolicy.REPLACE,
+                        req
+                    )
+                }
+
                 if (alarm.recurrenceType != RecurrenceType.NONE) {
                     val nextTime = RecurrenceUtils.calculateNextOccurrence(
                         alarm.time, 

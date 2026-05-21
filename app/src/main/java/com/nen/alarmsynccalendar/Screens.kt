@@ -183,7 +183,10 @@ fun CalendarsTabScreen(cloudEvents: List<EventInfo>, accounts: List<ConnectedClo
             } else {
                 items(accounts) { acc ->
                     var isExpanded by remember { mutableStateOf(acc.isExpanded) }
-                    val accountEvents = cloudEvents.filter { it.accountEmail == acc.email }
+                    val currentTime = System.currentTimeMillis()
+                    val accountEvents = cloudEvents.filter {
+                        it.accountEmail == acc.email && (it.startTime - 5 * 60 * 1000L) > currentTime
+                    }
                     
                     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
                         Column {
@@ -314,6 +317,29 @@ fun AboutDialog(onDismiss: () -> Unit, onOpenSettings: () -> Unit, onOpenOEM: ()
                         Button(onClick = if (isKnown) onOpenOEM else onOpenSettings, modifier = Modifier.weight(1f)) { Text("App Info") }
                         OutlinedButton(onClick = { showLogs = true }, modifier = Modifier.weight(1f)) { Text("Logs") }
                     }
+                    
+                    val syncPrefs = context.getSharedPreferences("sync_logs", Context.MODE_PRIVATE)
+                    val lastExecutionTime = syncPrefs.getLong("last_execution_time", 0L)
+                    val firstRunTime = syncPrefs.getLong("first_run_time", 0L)
+                    val currentTime = System.currentTimeMillis()
+                    val threshold = 45 * 60 * 1000L // 45 minutes
+
+                    val showWarning = if (lastExecutionTime == 0L) {
+                        firstRunTime > 0L && (currentTime - firstRunTime > threshold)
+                    } else {
+                        currentTime - lastExecutionTime > threshold
+                    }
+
+                    if (showWarning) {
+                        Spacer(Modifier.height(12.dp))
+                        Text(
+                            text = "⚠️ Background sync has not run recently. Please check that all background permissions (Unrestricted battery, Auto-start, etc.) are enabled in App Info.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                    
                     Spacer(Modifier.height(16.dp))
                     Text("Project Links", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
                     Text(text = "Source Code (GitHub)", color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/uniquer/alarm_sync_calendar"))) }.padding(vertical = 4.dp))

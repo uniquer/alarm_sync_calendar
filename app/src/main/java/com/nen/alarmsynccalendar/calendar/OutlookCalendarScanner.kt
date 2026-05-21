@@ -38,7 +38,7 @@ class OutlookCalendarScanner(private val context: Context) {
         try {
             val events = fetchEventsFromCalendar(token, "me/calendar", email)
             val now = System.currentTimeMillis()
-            events.filter { it.startTime > now }.groupBy { it.recurringEventId ?: it.googleEventId }.map { (_, instances) -> instances.sortedBy { it.startTime }.first() }
+            events.filter { (it.startTime - 5 * 60 * 1000L) > now }.groupBy { it.recurringEventId ?: it.googleEventId }.map { (_, instances) -> instances.sortedBy { it.startTime }.first() }
         } catch (e: Exception) { Log.e("CAL_DEBUG", "Outlook events error: ${e.message}"); throw e }
     }
 

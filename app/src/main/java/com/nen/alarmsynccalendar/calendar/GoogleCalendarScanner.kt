@@ -47,7 +47,7 @@ class GoogleCalendarScanner(private val context: Context) {
             val token = GoogleAuthUtil.getToken(context, email, scope)
             val events = fetchEventsFromCalendar(token, "primary", email)
             val now = System.currentTimeMillis()
-            events.filter { it.startTime > now }.groupBy { it.recurringEventId ?: it.googleEventId }.map { (_, instances) -> instances.sortedBy { it.startTime }.first() }
+            events.filter { (it.startTime - 5 * 60 * 1000L) > now }.groupBy { it.recurringEventId ?: it.googleEventId }.map { (_, instances) -> instances.sortedBy { it.startTime }.first() }
         } catch (e: Exception) { Log.e("CAL_DEBUG", "Error syncing $email: ${e.message}"); throw e }
     }
 

@@ -83,6 +83,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         authService = AuthorizationService(this)
 
+        val syncPrefs = getSharedPreferences("sync_logs", Context.MODE_PRIVATE)
+        if (!syncPrefs.contains("first_run_time")) {
+            syncPrefs.edit().putLong("first_run_time", System.currentTimeMillis()).apply()
+        }
+
         scheduleSync()
         checkBatteryOptimization()
 
@@ -197,9 +202,31 @@ class MainActivity : ComponentActivity() {
     // ── Infrastructure ────────────────────────────────────────────────────────
 
     private fun scheduleSync() {
-        val req = PeriodicWorkRequestBuilder<SyncWorker>(15, TimeUnit.MINUTES).build()
+        val data = Data.Builder()
+            .putString("trigger", "Timer Triggered (Periodic)")
+            .build()
+        val req = PeriodicWorkRequestBuilder<SyncWorker>(15, TimeUnit.MINUTES)
+            .setInputData(data)
+            .build()
         WorkManager.getInstance(this)
             .enqueueUniquePeriodicWork("CalendarSync", ExistingPeriodicWorkPolicy.UPDATE, req)
+
+        // Also schedule the initial fallback alarm for the background sync loop
+        val alarmManager = getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+        val intent = Intent(this, com.nen.alarmsynccalendar.sync.SyncTriggerReceiver::class.java)
+        val pendingIntent = android.app.PendingIntent.getBroadcast(
+            this,
+            999,
+            intent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+            alarmManager.setAndAllowWhileIdle(
+                android.app.AlarmManager.RTC_WAKEUP,
+                System.currentTimeMillis() + (30 * 60 * 1000L),
+                pendingIntent
+            )
+        }
     }
 
     private fun checkBatteryOptimization() {

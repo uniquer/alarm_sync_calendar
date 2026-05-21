@@ -27,6 +27,23 @@ class BootReceiver : BroadcastReceiver() {
                     }
                 }
             }
+
+            // Also schedule the fallback sync alarm to kickstart background syncs after boot
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+            val syncIntent = Intent(context, com.nen.alarmsynccalendar.sync.SyncTriggerReceiver::class.java)
+            val pendingIntent = android.app.PendingIntent.getBroadcast(
+                context,
+                999,
+                syncIntent,
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            )
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                alarmManager.setAndAllowWhileIdle(
+                    android.app.AlarmManager.RTC_WAKEUP,
+                    System.currentTimeMillis() + (30 * 60 * 1000L),
+                    pendingIntent
+                )
+            }
         }
     }
 }

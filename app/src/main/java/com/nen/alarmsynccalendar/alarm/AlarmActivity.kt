@@ -38,6 +38,20 @@ class AlarmActivity : ComponentActivity() {
     private val autoDismissRunnable = Runnable { dismissAlarm() }
     private var alarmId: Int = -1
 
+    private var currentVolume = 0.0f
+    private val volumeHandler = Handler(Looper.getMainLooper())
+    private val volumeRunnable = object : Runnable {
+        override fun run() {
+            mediaPlayer?.let { mp ->
+                if (currentVolume < 1.0f) {
+                    currentVolume = (currentVolume + 0.05f).coerceAtMost(1.0f)
+                    mp.setVolume(currentVolume, currentVolume)
+                    volumeHandler.postDelayed(this, 1000L)
+                }
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
@@ -77,9 +91,11 @@ class AlarmActivity : ComponentActivity() {
                         .build()
                 )
                 isLooping = true
+                setVolume(0.0f, 0.0f)
                 prepare()
                 start()
             }
+            volumeHandler.post(volumeRunnable)
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -93,8 +109,8 @@ class AlarmActivity : ComponentActivity() {
             vibrator?.vibrate(longArrayOf(0, 500, 500), 0)
         }
 
-        // Auto-dismiss the alarm after 10 minutes to save battery
-        autoDismissHandler.postDelayed(autoDismissRunnable, 10 * 60 * 1000L)
+        // Auto-dismiss the alarm after 1 minute to save battery
+        autoDismissHandler.postDelayed(autoDismissRunnable, 1 * 60 * 1000L)
 
         setContent {
             AlarmScreen(message = message, onDismiss = { dismissAlarm() })
@@ -103,6 +119,7 @@ class AlarmActivity : ComponentActivity() {
 
     private fun dismissAlarm() {
         try {
+            volumeHandler.removeCallbacks(volumeRunnable)
             mediaPlayer?.stop()
             mediaPlayer?.release()
             mediaPlayer = null
@@ -126,6 +143,7 @@ class AlarmActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        volumeHandler.removeCallbacks(volumeRunnable)
         mediaPlayer?.release()
         vibrator?.cancel()
         autoDismissHandler.removeCallbacks(autoDismissRunnable)
