@@ -15,11 +15,11 @@ class SyncTriggerReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action
         val triggerType = if (action == Intent.ACTION_USER_PRESENT) {
-            "User Awake (Screen Unlock)"
+            "User Awake"
         } else {
-            "Timer Triggered (Fallback)"
+            "Fallback"
         }
-        log(context, "$triggerType — enqueued sync")
+        log(context, "$triggerType enqueued")
 
         // Trigger a one-time sync
         val data = androidx.work.Data.Builder()
@@ -30,7 +30,7 @@ class SyncTriggerReceiver : BroadcastReceiver() {
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork("ImmediateSync", ExistingWorkPolicy.REPLACE, req)
         
-        // Unconditionally reschedule the fallback alarm (30 minutes from now)
+        // Unconditionally reschedule the fallback alarm (2 hours from now)
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
         val nextIntent = Intent(context, SyncTriggerReceiver::class.java)
         val pendingIntent = android.app.PendingIntent.getBroadcast(
@@ -39,13 +39,16 @@ class SyncTriggerReceiver : BroadcastReceiver() {
             nextIntent,
             android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
         )
+        val nextFallbackTime = System.currentTimeMillis() + (120 * 60 * 1000L)
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
             alarmManager.setAndAllowWhileIdle(
                 android.app.AlarmManager.RTC_WAKEUP,
-                System.currentTimeMillis() + (30 * 60 * 1000L),
+                nextFallbackTime,
                 pendingIntent
             )
         }
+        val sdf = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault())
+        log(context, "Fallback rescheduled. Next: ~${sdf.format(Date(nextFallbackTime))}")
     }
 
     private fun log(context: Context, message: String) {

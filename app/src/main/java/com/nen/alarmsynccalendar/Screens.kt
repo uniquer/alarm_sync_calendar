@@ -152,6 +152,18 @@ fun CalendarsTabScreen(cloudEvents: List<EventInfo>, accounts: List<ConnectedClo
     val syncSdf = SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault())
     var accountToDelete by remember { mutableStateOf<String?>(null) }
 
+    var activeTooltipTitle by remember { mutableStateOf<String?>(null) }
+    var activeTooltipText by remember { mutableStateOf<String?>(null) }
+
+    if (activeTooltipText != null) {
+        AlertDialog(
+            onDismissRequest = { activeTooltipText = null },
+            title = { Text(activeTooltipTitle ?: "Permission Information") },
+            text = { Text(activeTooltipText!!) },
+            confirmButton = { TextButton(onClick = { activeTooltipText = null }) { Text("OK") } }
+        )
+    }
+
     val transition = rememberInfiniteTransition()
     val angle by transition.animateFloat(initialValue = 0f, targetValue = 360f, animationSpec = infiniteRepeatable(animation = androidx.compose.animation.core.tween(1000, easing = androidx.compose.animation.core.LinearEasing)))
 
@@ -176,14 +188,163 @@ fun CalendarsTabScreen(cloudEvents: List<EventInfo>, accounts: List<ConnectedClo
         Spacer(Modifier.height(16.dp))
         Text("Only Primary calendars are synced for performance.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
         Spacer(Modifier.height(16.dp))
+
+        val hasCalendarPermission = context.checkSelfPermission(android.Manifest.permission.READ_CALENDAR) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+        val hasNotificationsPermission = notificationManager.areNotificationsEnabled()
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        val isBatteryIgnoringOptimizations = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) powerManager.isIgnoringBatteryOptimizations(context.packageName) else true
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+        val hasExactAlarmPermission = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) alarmManager.canScheduleExactAlarms() else true
+
+        val allPermissionsEnabled = hasCalendarPermission && hasNotificationsPermission && isBatteryIgnoringOptimizations && hasExactAlarmPermission
+        var isDiagnosticsExpanded by remember { mutableStateOf(false) }
+
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+            )
+        ) {
+            Column {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { isDiagnosticsExpanded = !isDiagnosticsExpanded }
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = if (isDiagnosticsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = if (isDiagnosticsExpanded) "Collapse" else "Expand"
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        text = "Background Sync Diagnostics",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Icon(
+                        imageVector = if (allPermissionsEnabled) Icons.Default.CheckCircle else Icons.Default.Warning,
+                        contentDescription = if (allPermissionsEnabled) "All Permissions Enabled" else "Some Permissions Missing",
+                        tint = if (allPermissionsEnabled) Color(0xFF2E7D32) else Color(0xFFC62828),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                if (isDiagnosticsExpanded) {
+                    Column(modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp)) {
+                        DiagnosticItem(
+                            name = "Calendar Access",
+                            isEnabled = hasCalendarPermission,
+                            tooltipTitle = "Calendar Access",
+                            tooltipText = "Enables the App to read events from your connected local and cloud calendars so it can sync them to your device as physical alarms.",
+                            onShowTooltip = { title, text -> activeTooltipTitle = title; activeTooltipText = text }
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        DiagnosticItem(
+                            name = "Notifications",
+                            isEnabled = hasNotificationsPermission,
+                            tooltipTitle = "Notifications Permission",
+                            tooltipText = "Enables the App to show a persistent status or alert when an alarm goes off, and notify you if a background sync fails or requires attention.",
+                            onShowTooltip = { title, text -> activeTooltipTitle = title; activeTooltipText = text }
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        DiagnosticItem(
+                            name = "Battery Optimization",
+                            isEnabled = isBatteryIgnoringOptimizations,
+                            tooltipTitle = "Battery Optimization",
+                            tooltipText = "Disabling battery optimization (setting to 'Unrestricted') allows Android to run the background sync worker at the scheduled times, preventing it from being killed when the phone is idle.",
+                            onShowTooltip = { title, text -> activeTooltipTitle = title; activeTooltipText = text }
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        DiagnosticItem(
+                            name = "Exact Alarms",
+                            isEnabled = hasExactAlarmPermission,
+                            tooltipTitle = "Exact Alarms Permission",
+                            tooltipText = "Allows the App to schedule the 2-hour fallback alarm with precise sub-second timing, ensuring a sync runs even if the standard Android WorkManager is delayed.",
+                            onShowTooltip = { title, text -> activeTooltipTitle = title; activeTooltipText = text }
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        DiagnosticItem(
+                            name = "Auto-Start (OEM Settings)",
+                            isEnabled = null,
+                            tooltipTitle = "Auto-Start (OEM Settings)",
+                            tooltipText = "On certain custom Android skins (like Xiaomi/MIUI, Oppo, OnePlus), you must manually allow the app to Auto-Start. Otherwise, all background timers and system wakeup events will be blocked by the system.",
+                            onShowTooltip = { title, text -> activeTooltipTitle = title; activeTooltipText = text }
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+
+        val syncPrefs = context.getSharedPreferences("sync_logs", Context.MODE_PRIVATE)
+        val lastExecutionTime = syncPrefs.getLong("last_execution_time", 0L)
+        val firstRunTime = syncPrefs.getLong("first_run_time", 0L)
+        val currentTime = System.currentTimeMillis()
+        val threshold = 45 * 60 * 1000L // 45 minutes
+
+        val showWarning = if (lastExecutionTime == 0L) {
+            firstRunTime > 0L && (currentTime - firstRunTime > threshold)
+        } else {
+            currentTime - lastExecutionTime > threshold
+        }
+
+        if (showWarning) {
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer
+                )
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Warning, contentDescription = "Warning", tint = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = "Background Sync Restricted",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "Background sync has not run recently. On some devices (like Xiaomi, Oppo), you must enable Auto-start, set Battery saving to 'Unrestricted' in App Info, and lock the app in Recents (padlock icon) to allow syncing in the background.",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Button(
+                        onClick = {
+                            val manufacturer = android.os.Build.MANUFACTURER.lowercase()
+                            val isKnown = manufacturer.contains("xiaomi") || manufacturer.contains("oppo") || manufacturer.contains("realme") || manufacturer.contains("vivo")
+                            if (isKnown) {
+                                (context as? MainActivity)?.openOEMSettings()
+                            } else {
+                                (context as? MainActivity)?.openSettings()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error,
+                            contentColor = MaterialTheme.colorScheme.onError
+                        )
+                    ) {
+                        Text("Fix Settings")
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+        }
         
         LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 80.dp)) {
             if (accounts.isEmpty()) {
                 item { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("No accounts connected. Tap + to add.") } }
             } else {
                 items(accounts) { acc ->
-                    var isExpanded by remember { mutableStateOf(acc.isExpanded) }
-                    val currentTime = System.currentTimeMillis()
+                    var isExpanded by remember { mutableStateOf(false) }
                     val accountEvents = cloudEvents.filter {
                         it.accountEmail == acc.email && (it.startTime - 5 * 60 * 1000L) > currentTime
                     }
@@ -310,7 +471,7 @@ fun AboutDialog(onDismiss: () -> Unit, onOpenSettings: () -> Unit, onOpenOEM: ()
                     Spacer(Modifier.height(16.dp))
                     Text("Device Reliability", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
                     Text("For 100% reliability, ensure these are enabled in App Info:", style = MaterialTheme.typography.bodySmall)
-                    Text("• Auto-start\n• Battery: 'Unrestricted'\n• Show on Lock screen\n• Display over other apps", style = MaterialTheme.typography.bodySmall)
+                    Text("• Auto-start\n• Battery: 'Unrestricted'\n• Lock app in Recents (Padlock icon)\n• Show on Lock screen\n• Display over other apps", style = MaterialTheme.typography.bodySmall)
                     
                     Spacer(Modifier.height(16.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -333,7 +494,7 @@ fun AboutDialog(onDismiss: () -> Unit, onOpenSettings: () -> Unit, onOpenOEM: ()
                     if (showWarning) {
                         Spacer(Modifier.height(12.dp))
                         Text(
-                            text = "⚠️ Background sync has not run recently. Please check that all background permissions (Unrestricted battery, Auto-start, etc.) are enabled in App Info.",
+                            text = "⚠️ Background sync has not run recently. Please check that background permissions (Unrestricted battery, Auto-start) are enabled in App Info, and that the app is locked in Recents (padlock icon).",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
                             fontWeight = FontWeight.Medium
@@ -365,4 +526,49 @@ fun AlarmEditDialog(existingAlarm: ScheduledAlarm?, onDismiss: () -> Unit, onCon
         Spacer(Modifier.height(16.dp)); FlowRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf(RecurrenceType.NONE, RecurrenceType.DAILY, RecurrenceType.WEEKLY, RecurrenceType.MONTHLY).forEach { type -> FilterChip(selected = recurrenceType == type, onClick = { recurrenceType = type }, label = { Text(type.name) }) } }
         if (recurrenceType == RecurrenceType.WEEKLY) { Spacer(Modifier.height(8.dp)); FlowRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) { listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat").forEachIndexed { i, n -> AssistChip(onClick = { calendar.set(Calendar.DAY_OF_WEEK, i+1); selectedDate = calendar.time }, label = { Text(n) }, colors = if (calendar.get(Calendar.DAY_OF_WEEK) == i+1) AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.primaryContainer) else AssistChipDefaults.assistChipColors()) } } }
     }}}, confirmButton = { Button(onClick = { val rd = if(recurrenceType == RecurrenceType.WEEKLY) calendar.get(Calendar.DAY_OF_WEEK) else if(recurrenceType == RecurrenceType.MONTHLY) calendar.get(Calendar.DAY_OF_MONTH) else null; onConfirm(title.ifBlank { "Manual" }, calendar.timeInMillis, recurrenceType, rd) }) { Text("Save") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
+}
+
+@Composable
+private fun DiagnosticItem(
+    name: String,
+    isEnabled: Boolean?,
+    tooltipTitle: String,
+    tooltipText: String,
+    onShowTooltip: (String, String) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = name,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.width(4.dp))
+            Icon(
+                imageVector = Icons.Default.Info,
+                contentDescription = "Info",
+                tint = MaterialTheme.colorScheme.secondary.copy(alpha = 0.7f),
+                modifier = Modifier
+                    .size(16.dp)
+                    .clickable { onShowTooltip(tooltipTitle, tooltipText) }
+            )
+        }
+        
+        val (statusText, statusColor) = when (isEnabled) {
+            true -> "Enabled" to Color(0xFF2E7D32)
+            false -> "Not Enabled" to Color(0xFFC62828)
+            null -> "Verify Manually" to Color(0xFFE65100)
+        }
+        
+        Text(
+            text = statusText,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Bold,
+            color = statusColor
+        )
+    }
 }

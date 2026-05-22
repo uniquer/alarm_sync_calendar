@@ -37,7 +37,7 @@ data class ConnectedCloudAccount(
     val isPrimaryEnabled: Boolean = true,
     var accessToken: String? = null,
     var refreshToken: String? = null,
-    var isExpanded: Boolean = true,
+    var isExpanded: Boolean = false,
     // nullable for JSON back-compat with older stored data; null is treated as OK
     val syncStatus: AccountSyncStatus? = null
 )

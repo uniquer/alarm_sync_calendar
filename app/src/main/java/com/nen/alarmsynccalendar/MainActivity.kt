@@ -152,7 +152,8 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         // Pick up any alarm changes written by SyncWorker while the app was in the background.
         viewModel.loadAlarms()
-        val staleSyncThreshold = 15 * 60 * 1000L
+
+        val staleSyncThreshold = 30 * 60 * 1000L
         if (viewModel.isCloudSignedIn && System.currentTimeMillis() - viewModel.lastSyncTime > staleSyncThreshold) {
             viewModel.refreshCloudEvents()
         }
@@ -203,13 +204,26 @@ class MainActivity : ComponentActivity() {
 
     private fun scheduleSync() {
         val data = Data.Builder()
-            .putString("trigger", "Timer Triggered (Periodic)")
+            .putString("trigger", "Periodic")
             .build()
-        val req = PeriodicWorkRequestBuilder<SyncWorker>(15, TimeUnit.MINUTES)
+        val req = PeriodicWorkRequestBuilder<SyncWorker>(30, TimeUnit.MINUTES)
             .setInputData(data)
             .build()
         WorkManager.getInstance(this)
             .enqueueUniquePeriodicWork("CalendarSync", ExistingPeriodicWorkPolicy.UPDATE, req)
+
+        val syncPrefs = getSharedPreferences("sync_logs", Context.MODE_PRIVATE)
+        val lastLogTime = syncPrefs.getLong("last_enqueue_log_time", 0L)
+        val now = System.currentTimeMillis()
+        val nextPeriodic = now + (30 * 60 * 1000L)
+        val nextFallback = now + (120 * 60 * 1000L)
+
+        if (now - lastLogTime > 25 * 60 * 1000L) {
+            val sdf = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
+            logToHistory("Periodic enqueued. Next: ~${sdf.format(java.util.Date(nextPeriodic))}")
+            logToHistory("Fallback scheduled. Next: ~${sdf.format(java.util.Date(nextFallback))}")
+            syncPrefs.edit().putLong("last_enqueue_log_time", now).apply()
+        }
 
         // Also schedule the initial fallback alarm for the background sync loop
         val alarmManager = getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
@@ -223,7 +237,7 @@ class MainActivity : ComponentActivity() {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
             alarmManager.setAndAllowWhileIdle(
                 android.app.AlarmManager.RTC_WAKEUP,
-                System.currentTimeMillis() + (30 * 60 * 1000L),
+                nextFallback,
                 pendingIntent
             )
         }
@@ -274,4 +288,13 @@ class MainActivity : ComponentActivity() {
             startActivity(i)
         } catch (e: Exception) { openSettings() }
     }
+
+    private fun logToHistory(message: String) {
+        val prefs = getSharedPreferences("sync_logs", Context.MODE_PRIVATE)
+        val existing = prefs.getString("history", "") ?: ""
+        val ts = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+        prefs.edit().putString("history", "[$ts] $message\n$existing".take(5000)).apply()
+    }
+
+
 }

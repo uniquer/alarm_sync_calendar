@@ -30,7 +30,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         } catch (e: Exception) { emptyList() }
 
         if (accounts.isEmpty()) {
-            log("[$trigger] Sync skipped: no accounts connected")
+            log("[$trigger] Skipped: no accounts")
             return Result.success()
         }
 
@@ -40,7 +40,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 object : TypeToken<List<ScheduledAlarm>>() {}.type
             )
         } catch (e: Exception) {
-            log("[$trigger] Sync failed: error reading alarms data")
+            log("[$trigger] Failed: read error")
             return Result.failure()
         }
 
@@ -91,7 +91,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             prefs.edit().putString("alarm_list", gson.toJson(newAlarms)).apply()
         }
 
-        log("[$trigger] Sync complete — ${syncedEmails.size}/${accounts.size} accounts OK")
+        log("[$trigger] OK: ${syncedEmails.size}/${accounts.size}")
         return Result.success()
     }
 
