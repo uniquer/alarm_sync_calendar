@@ -22,6 +22,13 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 
         val prefs = applicationContext.getSharedPreferences("alarms", Context.MODE_PRIVATE)
 
+        val lastGoogleSync = prefs.getLong("last_google_sync", 0L)
+        val now = System.currentTimeMillis()
+        if (now - lastGoogleSync < 10 * 60 * 1000L) {
+            log("[$trigger] Skipped: synced recently")
+            return Result.success()
+        }
+
         val accounts: List<ConnectedCloudAccount> = try {
             gson.fromJson(
                 prefs.getString("google_accounts_v3", "[]") ?: "[]",

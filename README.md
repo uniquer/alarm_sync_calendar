@@ -4,13 +4,10 @@ Never miss your important calendar webinar sessions. **CalAlarm Sync** automatic
 
 ## 🚀 Features
 
-- **Bidirectional Sync:** Automatically updates or cancels alarms when calendar events change or are deleted.
-- **Auto-Schedule Rules:** Create automation rules based on meeting organizers to schedule alarms for future events automatically.
-- **90-Day Lookahead:** Scans your calendar 3 months into the future for consistent planning.
-- **Flexible Lead Times:** Set alarms exactly on time, or 5, 10, or 15 minutes before your meetings.
-- **Privacy First:** All data is processed locally on the device. No calendar data is ever uploaded to external servers.
-- **Material 3 Design:** A modern, responsive UI with deep-blue branding.
-- **Background Engine:** Reliable sync powered by Android WorkManager, checking for updates every 15 minutes.
+- **Auto Sync:** Automatically schedules, updates, or cancels alarms as your calendar events change.
+- **Recurring Events:** Schedules alarms for recurring reminders or tasks easily.
+- **60-Day Lookahead:** Scans your primary calendar 60 days into the future to keep your alarms up to date.
+- **Privacy First:** All sync processing is done locally on your device; no calendar data is ever uploaded.
 
 ## 🛠 Tech Stack
 
