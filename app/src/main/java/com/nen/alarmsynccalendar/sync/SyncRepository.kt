@@ -171,11 +171,13 @@ class SyncRepository(private val context: Context) {
                 }
             } else {
                 val targetTime = event.startTime - (5 * 60 * 1000)
-                if (targetTime != alarm.time) {
-                    alarmScheduler.scheduleAlarm(alarm.id, targetTime, event.title)
+                val isLinkChanged = event.meetingLink != alarm.meetingLink
+                if (targetTime != alarm.time || isLinkChanged) {
+                    alarmScheduler.scheduleAlarm(alarm.id, targetTime, event.title, event.meetingLink)
                     iterator.set(alarm.copy(
                         time = targetTime,
-                        googleRecurrenceInfo = event.recurringEventId ?: if (event.isRecurring) "true" else null
+                        googleRecurrenceInfo = event.recurringEventId ?: if (event.isRecurring) "true" else null,
+                        meetingLink = event.meetingLink
                     ))
                     changed = true
                 }
@@ -189,11 +191,12 @@ class SyncRepository(private val context: Context) {
                 if (finalAlarms.none { it.googleEventId == event.googleEventId }) {
                     val targetTime = event.startTime - (5 * 60 * 1000)
                     val id = alarmIdForEvent(event.googleEventId)
-                    alarmScheduler.scheduleAlarm(id, targetTime, event.title)
+                    alarmScheduler.scheduleAlarm(id, targetTime, event.title, event.meetingLink)
                     finalAlarms.add(ScheduledAlarm(
                         id, targetTime, event.title,
                         googleEventId = event.googleEventId,
-                        googleRecurrenceInfo = event.recurringEventId ?: if (event.isRecurring) "true" else null
+                        googleRecurrenceInfo = event.recurringEventId ?: if (event.isRecurring) "true" else null,
+                        meetingLink = event.meetingLink
                     ))
                     changed = true
                 }

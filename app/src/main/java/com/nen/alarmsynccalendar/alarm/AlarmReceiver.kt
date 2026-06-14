@@ -26,11 +26,12 @@ class AlarmReceiver : BroadcastReceiver() {
 
         val message = intent.getStringExtra("ALARM_MESSAGE") ?: "Meeting Alarm!"
         val id = intent.getIntExtra("ALARM_ID", 1)
+        val meetingLink = intent.getStringExtra("ALARM_MEETING_LINK")
         
         // Handle Recurrence chaining BEFORE showing notification to ensure persistence
         handleRecurrence(context, id)
         
-        showNotification(context, message, id)
+        showNotification(context, message, id, meetingLink)
     }
 
     private fun handleRecurrence(context: Context, alarmId: Int) {
@@ -77,7 +78,7 @@ class AlarmReceiver : BroadcastReceiver() {
                     prefs.edit().putString("alarm_list", gson.toJson(alarms)).apply()
                     
                     // Schedule the next instance
-                    AlarmScheduler(context).scheduleAlarm(nextAlarm.id, nextAlarm.time, nextAlarm.message)
+                    AlarmScheduler(context).scheduleAlarm(nextAlarm.id, nextAlarm.time, nextAlarm.message, nextAlarm.meetingLink)
                 }
             }
         } catch (e: Exception) {
@@ -85,10 +86,10 @@ class AlarmReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun showNotification(context: Context, message: String, id: Int) {
+    private fun showNotification(context: Context, message: String, id: Int, meetingLink: String?) {
         val channelId = "alarm_channel"
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-
+ 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 channelId,
@@ -100,11 +101,12 @@ class AlarmReceiver : BroadcastReceiver() {
             }
             notificationManager.createNotificationChannel(channel)
         }
-
+ 
         val fullScreenIntent = Intent(context, AlarmActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra("ALARM_MESSAGE", message)
             putExtra("ALARM_ID", id)
+            putExtra("ALARM_MEETING_LINK", meetingLink)
         }
         
         val fullScreenPendingIntent = PendingIntent.getActivity(

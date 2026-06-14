@@ -384,19 +384,63 @@ fun CalendarsTabScreen(cloudEvents: List<EventInfo>, accounts: List<ConnectedClo
                                         val seriesId = event.recurringEventId ?: event.googleEventId?.split("_")?.get(0)
                                         val isExcluded = excludedEvents.any { it.id == event.googleEventId || (seriesId != null && it.id == seriesId) }
                                         
-                                        Row(modifier = Modifier.padding(start = 32.dp, end = 16.dp, bottom = 8.dp).fillMaxWidth().alpha(if (isExcluded) 0.5f else 1f).clickable {
+                                        Row(modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp).fillMaxWidth().alpha(if (isExcluded) 0.5f else 1f).clickable {
                                             onToggleAlarm(event, isExcluded || existing == null)
                                         }, verticalAlignment = Alignment.CenterVertically) {
-                                            Box(modifier = Modifier.size(40.dp)) {
-                                                if (isExcluded || existing != null || event.isRecurring) {
-                                                    Icon(if (isExcluded) Icons.Default.Block else if (existing != null) Icons.Default.Notifications else Icons.Default.Repeat, null, tint = if (isExcluded) Color.Gray else if (existing != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary, modifier = Modifier.size(24.dp).align(Alignment.TopStart))
+                                            Box(modifier = Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                                                if (isExcluded) {
+                                                    Icon(Icons.Default.Block, null, tint = Color.Gray, modifier = Modifier.size(20.dp))
+                                                } else if (existing != null) {
+                                                    Icon(Icons.Default.Notifications, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                                                } else if (event.isRecurring) {
+                                                    Icon(Icons.Default.Repeat, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(20.dp))
                                                 }
-                                                if (event.isRecurring && (existing != null || isExcluded)) Icon(Icons.Default.Repeat, null, tint = if (isExcluded) Color.Gray else MaterialTheme.colorScheme.secondary, modifier = Modifier.size(14.dp).align(Alignment.BottomEnd).background(MaterialTheme.colorScheme.surface, androidx.compose.foundation.shape.CircleShape).padding(1.dp))
                                             }
-                                            Spacer(Modifier.width(12.dp))
+                                            Spacer(Modifier.width(8.dp))
                                             Column(modifier = Modifier.weight(1f)) {
-                                                Text(event.title, style = MaterialTheme.typography.bodyMedium, fontWeight = if (existing != null && !isExcluded) FontWeight.Bold else FontWeight.Normal, maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Text(event.title, style = MaterialTheme.typography.bodyMedium, fontWeight = if (existing != null && !isExcluded) FontWeight.Bold else FontWeight.Normal, maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                                                    if (event.isRecurring) {
+                                                        Spacer(Modifier.width(6.dp))
+                                                        Icon(
+                                                            imageVector = Icons.Default.Repeat,
+                                                            contentDescription = "Recurring Event",
+                                                            tint = MaterialTheme.colorScheme.secondary,
+                                                            modifier = Modifier.size(14.dp)
+                                                        )
+                                                    }
+                                                }
                                                 Text("${dateSdf.format(Date(event.startTime))} ${sdf.format(Date(event.startTime))}", style = MaterialTheme.typography.labelSmall)
+                                                if (!event.meetingLink.isNullOrBlank()) {
+                                                    Spacer(Modifier.height(8.dp))
+                                                    Button(
+                                                        onClick = {
+                                                            try {
+                                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(event.meetingLink)).apply {
+                                                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                                                }
+                                                                context.startActivity(intent)
+                                                            } catch (e: Exception) {
+                                                                Toast.makeText(context, "Could not open link", Toast.LENGTH_SHORT).show()
+                                                            }
+                                                        },
+                                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                                        modifier = Modifier.height(32.dp),
+                                                        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.VideoCall,
+                                                            contentDescription = "Join Meeting",
+                                                            modifier = Modifier.size(16.dp)
+                                                        )
+                                                        Spacer(Modifier.width(6.dp))
+                                                        Text(
+                                                            text = "Join Meet",
+                                                            style = MaterialTheme.typography.labelMedium,
+                                                            fontWeight = FontWeight.Bold
+                                                        )
+                                                    }
+                                                }
                                             }
                                             Switch(checked = existing != null && !isExcluded, onCheckedChange = { onToggleAlarm(event, it) })
                                         }
@@ -414,6 +458,7 @@ fun CalendarsTabScreen(cloudEvents: List<EventInfo>, accounts: List<ConnectedClo
 @Composable
 fun AlarmCard(alarm: ScheduledAlarm, onEdit: (ScheduledAlarm) -> Unit, onDelete: (ScheduledAlarm) -> Unit, isPast: Boolean = false) {
     val sdf = SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault())
+    val context = androidx.compose.ui.platform.LocalContext.current
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), colors = if (isPast) CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)) else CardDefaults.cardColors()) {
         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(modifier = Modifier.size(48.dp)) {
@@ -424,14 +469,70 @@ fun AlarmCard(alarm: ScheduledAlarm, onEdit: (ScheduledAlarm) -> Unit, onDelete:
             }
             Spacer(Modifier.width(16.dp)); Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(text = alarm.message, style = MaterialTheme.typography.titleMedium, textDecoration = if (isPast) androidx.compose.ui.text.style.TextDecoration.LineThrough else null, modifier = Modifier.weight(1f), maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                     val isLocal = alarm.googleEventId == null
-                    Icon(if (isLocal) Icons.Default.Smartphone else Icons.Default.CalendarToday, null, tint = if (isLocal) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(start = 8.dp).size(16.dp))
+                    Icon(
+                        if (isLocal) Icons.Default.Smartphone else Icons.Default.CalendarToday,
+                        null,
+                        tint = if (isLocal) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.padding(end = 8.dp).size(16.dp)
+                    )
+                    Text(text = alarm.message, style = MaterialTheme.typography.titleMedium, textDecoration = if (isPast) androidx.compose.ui.text.style.TextDecoration.LineThrough else null, modifier = Modifier.weight(1f), maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 }
                 Text(text = sdf.format(Date(alarm.time)), style = MaterialTheme.typography.bodySmall)
+                if (!alarm.meetingLink.isNullOrBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = {
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(alarm.meetingLink)).apply {
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                }
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Could not open link", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                        modifier = Modifier.height(32.dp),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.VideoCall,
+                            contentDescription = "Join Meeting",
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = "Join Meet",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
             }
-            if (!isPast && alarm.googleEventId == null) IconButton(onClick = { onEdit(alarm) }) { Icon(Icons.Default.Edit, null, tint = MaterialTheme.colorScheme.primary) }
-            IconButton(onClick = { onDelete(alarm) }) { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) }
+            if (!isPast && alarm.googleEventId == null) {
+                FilledTonalIconButton(
+                    onClick = { onEdit(alarm) },
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    ),
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(Icons.Default.Edit, null, modifier = Modifier.size(20.dp))
+                }
+                Spacer(Modifier.width(8.dp))
+            }
+            FilledTonalIconButton(
+                onClick = { onDelete(alarm) },
+                colors = IconButtonDefaults.filledTonalIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer
+                ),
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(Icons.Default.Delete, null, modifier = Modifier.size(20.dp))
+            }
         }
     }
 }

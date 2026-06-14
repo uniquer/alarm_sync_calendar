@@ -15,7 +15,8 @@ data class EventInfo(
     val endTime: Long,
     val description: String?,
     val organizer: String?,
-    val accountEmail: String? = null
+    val accountEmail: String? = null,
+    val meetingLink: String? = null
 )
 
 data class ScheduledAlarm(
@@ -28,7 +29,8 @@ data class ScheduledAlarm(
     val sourceRuleId: Int? = null,
     val manualLeadTimeMinutes: Int? = null,
     val recurrenceType: RecurrenceType = RecurrenceType.NONE,
-    val recurrenceData: Int? = null
+    val recurrenceData: Int? = null,
+    val meetingLink: String? = null
 )
 
 data class ConnectedCloudAccount(

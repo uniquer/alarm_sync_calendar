@@ -2,11 +2,12 @@
 .gradle/
 build/
 
-# Android Studio files
+# Android Studio / VS Code files
 *.iml
 .idea/
 local.properties
 .DS_Store
+*.code-workspace
 
 # Built artifacts
 *.apk

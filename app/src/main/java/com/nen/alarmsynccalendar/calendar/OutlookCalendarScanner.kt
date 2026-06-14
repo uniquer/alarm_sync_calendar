@@ -59,7 +59,16 @@ class OutlookCalendarScanner(private val context: Context) {
                 val seriesId = item.optString("seriesMasterId").takeIf { it != "null" && it.isNotBlank() }
                 val startTs = parseIso(item.getJSONObject("start").getString("dateTime"))
                 val org = item.optJSONObject("organizer")?.optJSONObject("emailAddress")?.optString("address") ?: "Unknown"
-                events.add(EventInfo(id.hashCode().toLong(), id, seriesId, seriesId != null, null, item.optString("subject", "No Title"), startTs, 0L, null, org, email))
+                
+                val desc = item.optJSONObject("body")?.optString("content")?.takeIf { it != "null" && it.isNotBlank() }
+                val loc = item.optJSONObject("location")?.optString("displayName")?.takeIf { it != "null" && it.isNotBlank() }
+                
+                var meetingLink = item.optJSONObject("onlineMeeting")?.optString("joinUrl")?.takeIf { it != "null" && it.isNotBlank() }
+                if (meetingLink == null) {
+                    meetingLink = MeetingUtils.extractMeetingLink(loc, desc)
+                }
+
+                events.add(EventInfo(id.hashCode().toLong(), id, seriesId, seriesId != null, null, item.optString("subject", "No Title"), startTs, 0L, desc, org, email, meetingLink))
             }
         }
         return events

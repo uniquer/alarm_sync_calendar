@@ -146,11 +146,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             if (event.googleEventId != null && activeAlarms.none { it.googleEventId == event.googleEventId }) {
                 val targetTime = event.startTime - (5 * 60 * 1000)
                 val id = repo.alarmIdForEvent(event.googleEventId)
-                alarmScheduler.scheduleAlarm(id, targetTime, event.title)
+                alarmScheduler.scheduleAlarm(id, targetTime, event.title, event.meetingLink)
                 activeAlarms.add(ScheduledAlarm(
                     id, targetTime, event.title,
                     googleEventId = event.googleEventId,
-                    googleRecurrenceInfo = event.recurringEventId ?: if (event.isRecurring) "true" else null
+                    googleRecurrenceInfo = event.recurringEventId ?: if (event.isRecurring) "true" else null,
+                    meetingLink = event.meetingLink
                 ))
                 saveAlarms()
             }

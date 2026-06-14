@@ -56,7 +56,7 @@ class GoogleCalendarScanner(private val context: Context) {
         val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
         val start = sdf.format(Date()); val end = sdf.format(Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 60) }.time)
         val encodedId = java.net.URLEncoder.encode(calendarId, "UTF-8")
-        val url = URL("https://www.googleapis.com/calendar/v3/calendars/$encodedId/events?timeMin=$start&timeMax=$end&singleEvents=true&orderBy=startTime")
+        val url = URL("https://www.googleapis.com/calendar/v3/calendars/$encodedId/events?timeMin=$start&timeMax=$end&singleEvents=true&orderBy=startTime&conferenceDataVersion=1")
         // Let IOException propagate — callers (SyncRepository) catch it and fall back to cache.
         val conn = url.openConnection() as HttpURLConnection
         conn.setRequestProperty("Authorization", "Bearer $token")
@@ -70,7 +70,29 @@ class GoogleCalendarScanner(private val context: Context) {
                 val startStr = item.optJSONObject("start")?.optString("dateTime") ?: item.optJSONObject("start")?.optString("date") ?: ""
                 if (startStr.isEmpty()) continue
                 val org = item.optJSONObject("organizer")?.optString("email") ?: "Unknown"
-                events.add(EventInfo(id.hashCode().toLong(), id, recurringId, recurringId != null || item.has("recurrence"), null, item.optString("summary", "No Title"), parseIso(startStr), 0L, null, org, email))
+                
+                val desc = item.optString("description").takeIf { it.isNotBlank() }
+                val loc = item.optString("location").takeIf { it.isNotBlank() }
+                
+                var meetingLink = item.optString("hangoutLink").takeIf { it.isNotBlank() }
+                if (meetingLink == null) {
+                    val confData = item.optJSONObject("conferenceData")
+                    val entryPoints = confData?.optJSONArray("entryPoints")
+                    if (entryPoints != null) {
+                        for (j in 0 until entryPoints.length()) {
+                            val ep = entryPoints.getJSONObject(j)
+                            if (ep.optString("entryPointType") == "video") {
+                                meetingLink = ep.optString("uri").takeIf { it.isNotBlank() }
+                                break
+                            }
+                        }
+                    }
+                }
+                if (meetingLink == null) {
+                    meetingLink = MeetingUtils.extractMeetingLink(loc, desc)
+                }
+
+                events.add(EventInfo(id.hashCode().toLong(), id, recurringId, recurringId != null || item.has("recurrence"), null, item.optString("summary", "No Title"), parseIso(startStr), 0L, desc, org, email, meetingLink))
             }
         }
         return events

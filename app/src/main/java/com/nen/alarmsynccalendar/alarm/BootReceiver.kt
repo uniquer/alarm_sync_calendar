@@ -23,7 +23,7 @@ class BootReceiver : BroadcastReceiver() {
 
                 alarms.forEach { alarm ->
                     if (alarm.time > currentTime) {
-                        scheduler.scheduleAlarm(alarm.id, alarm.time, alarm.message)
+                        scheduler.scheduleAlarm(alarm.id, alarm.time, alarm.message, alarm.meetingLink)
                     }
                 }
             }

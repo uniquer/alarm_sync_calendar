@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.VideoCall
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -26,6 +27,7 @@ import android.os.VibrationEffect
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.net.Uri
 
 import android.app.NotificationManager
 import android.content.Intent
@@ -56,6 +58,7 @@ class AlarmActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         
         val message = intent.getStringExtra("ALARM_MESSAGE") ?: "Meeting Alarm!"
+        val meetingLink = intent.getStringExtra("ALARM_MEETING_LINK")
         alarmId = intent.getIntExtra("ALARM_ID", -1)
 
         // Wake the screen and show over lockscreen
@@ -113,7 +116,12 @@ class AlarmActivity : ComponentActivity() {
         autoDismissHandler.postDelayed(autoDismissRunnable, 1 * 60 * 1000L)
 
         setContent {
-            AlarmScreen(message = message, onDismiss = { dismissAlarm() })
+            AlarmScreen(
+                message = message,
+                meetingLink = meetingLink,
+                onDismiss = { dismissAlarm() },
+                onJoin = { link -> joinMeetingAndDismiss(link) }
+            )
         }
     }
 
@@ -141,6 +149,30 @@ class AlarmActivity : ComponentActivity() {
         }
     }
 
+    private fun joinMeetingAndDismiss(meetingLink: String) {
+        try {
+            volumeHandler.removeCallbacks(volumeRunnable)
+            mediaPlayer?.stop()
+            mediaPlayer?.release()
+            mediaPlayer = null
+            vibrator?.cancel()
+            autoDismissHandler.removeCallbacks(autoDismissRunnable)
+            
+            if (alarmId != -1) {
+                val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                notificationManager.cancel(alarmId)
+            }
+            
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(meetingLink)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            startActivity(intent)
+            finishAndRemoveTask()
+        } catch (e: Exception) {
+            finish()
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         volumeHandler.removeCallbacks(volumeRunnable)
@@ -150,8 +182,10 @@ class AlarmActivity : ComponentActivity() {
     }
 }
 
+
+
 @Composable
-fun AlarmScreen(message: String, onDismiss: () -> Unit) {
+fun AlarmScreen(message: String, meetingLink: String?, onDismiss: () -> Unit, onJoin: (String) -> Unit) {
     val darkColorScheme = darkColorScheme(
         primary = Color.White,
         onPrimary = Color.Black,
@@ -186,12 +220,36 @@ fun AlarmScreen(message: String, onDismiss: () -> Unit) {
                     textAlign = TextAlign.Center,
                     lineHeight = 56.sp
                 )
-                Spacer(modifier = Modifier.height(80.dp))
+                Spacer(modifier = Modifier.height(60.dp))
+                if (!meetingLink.isNullOrBlank()) {
+                    Button(
+                        onClick = { onJoin(meetingLink) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(80.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF2E7D32), // Premium Material Green
+                            contentColor = Color.White
+                        ),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.VideoCall, null, modifier = Modifier.size(32.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                text = "JOIN THE MEET",
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
                 Button(
                     onClick = onDismiss,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(90.dp),
+                        .height(80.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color.White,
                         contentColor = Color.Black
@@ -200,7 +258,7 @@ fun AlarmScreen(message: String, onDismiss: () -> Unit) {
                 ) {
                     Text(
                         text = "DISMISS",
-                        fontSize = 28.sp,
+                        fontSize = 24.sp,
                         fontWeight = FontWeight.ExtraBold
                     )
                 }

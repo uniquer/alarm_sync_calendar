@@ -11,7 +11,7 @@ import android.util.Log
 class AlarmScheduler(private val context: Context) {
     private val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
-    fun scheduleAlarm(id: Int, timeInMillis: Long, message: String) {
+    fun scheduleAlarm(id: Int, timeInMillis: Long, message: String, meetingLink: String? = null) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (!alarmManager.canScheduleExactAlarms()) {
                 val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
@@ -23,6 +23,7 @@ class AlarmScheduler(private val context: Context) {
         val intent = Intent(context, AlarmReceiver::class.java).apply {
             putExtra("ALARM_MESSAGE", message)
             putExtra("ALARM_ID", id)
+            putExtra("ALARM_MEETING_LINK", meetingLink)
         }
 
         val pendingIntent = PendingIntent.getBroadcast(
