@@ -57,6 +57,21 @@ fun MainScreen(
             val id = alarmToEdit?.id ?: System.currentTimeMillis().toInt()
             val n = ScheduledAlarm(id, f, t, recurrenceType = rt, recurrenceData = rd)
             alarmScheduler.scheduleAlarm(id, f, t); activeAlarms.removeAll { it.id == id }; activeAlarms.add(n)
+            
+            val diffMs = f - System.currentTimeMillis()
+            val diffMinutes = java.util.concurrent.TimeUnit.MILLISECONDS.toMinutes(diffMs)
+            val diffHours = diffMinutes / 60
+            val remainingMinutes = diffMinutes % 60
+            val diffDays = diffHours / 24
+            val remainingHours = diffHours % 24
+
+            val diffMsg = when {
+                diffDays > 0 -> "Alarm set for $diffDays days, $remainingHours hours, and $remainingMinutes minutes from now"
+                diffHours > 0 -> "Alarm set for $remainingHours hours and $remainingMinutes minutes from now"
+                else -> "Alarm set for $remainingMinutes minutes from now"
+            }
+            Toast.makeText(context, diffMsg, Toast.LENGTH_LONG).show()
+
             onSave(); showEditDialog = false; alarmToEdit = null
         } else {
             Toast.makeText(context, "Cannot set alarm in the past!", Toast.LENGTH_SHORT).show()
@@ -358,21 +373,35 @@ fun CalendarsTabScreen(cloudEvents: List<EventInfo>, accounts: List<ConnectedClo
                                     Text(acc.email, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                                     Text("${accountEvents.size} events in next 60 days", style = MaterialTheme.typography.labelSmall)
                                 }
-                                when (acc.syncStatus) {
-                                    AccountSyncStatus.AUTH_ERROR -> Icon(
-                                        Icons.Default.Error, contentDescription = "Auth Error — re-connect account",
-                                        tint = MaterialTheme.colorScheme.error, modifier = Modifier.padding(end = 8.dp)
-                                    )
-                                    AccountSyncStatus.TIMEOUT -> Icon(
-                                        Icons.Default.Schedule, contentDescription = "Last sync timed out",
-                                        tint = Color(0xFFFF9800), modifier = Modifier.padding(end = 8.dp)
-                                    )
-                                    AccountSyncStatus.NETWORK_ERROR -> Icon(
-                                        Icons.Default.CloudOff, contentDescription = "Network error — showing cached events",
-                                        tint = Color(0xFFFF6D00), modifier = Modifier.padding(end = 8.dp)
-                                    )
-                                    else -> {} // OK or null — no icon
-                                }
+                                 val statusMsg = when (acc.syncStatus) {
+                                     AccountSyncStatus.AUTH_ERROR -> "Authentication Error: Please disconnect and re-connect your account."
+                                     AccountSyncStatus.TIMEOUT -> "Sync Timeout: The request took too long. Check your internet connection."
+                                     AccountSyncStatus.NETWORK_ERROR -> "Network Error: Could not connect to servers. Showing cached events."
+                                     else -> null
+                                 }
+                                 if (statusMsg != null) {
+                                     IconButton(
+                                         onClick = { Toast.makeText(context, statusMsg, Toast.LENGTH_LONG).show() },
+                                         modifier = Modifier.padding(end = 8.dp).size(32.dp)
+                                     ) {
+                                         Icon(
+                                             imageVector = when (acc.syncStatus) {
+                                                 AccountSyncStatus.AUTH_ERROR -> Icons.Default.Error
+                                                 AccountSyncStatus.TIMEOUT -> Icons.Default.Schedule
+                                                 AccountSyncStatus.NETWORK_ERROR -> Icons.Default.CloudOff
+                                                 else -> Icons.Default.Warning
+                                             },
+                                             contentDescription = statusMsg,
+                                             tint = when (acc.syncStatus) {
+                                                 AccountSyncStatus.AUTH_ERROR -> MaterialTheme.colorScheme.error
+                                                 AccountSyncStatus.TIMEOUT -> Color(0xFFFF9800)
+                                                 AccountSyncStatus.NETWORK_ERROR -> Color(0xFFFF6D00)
+                                                 else -> Color.Gray
+                                             },
+                                             modifier = Modifier.size(24.dp)
+                                         )
+                                     }
+                                 }
                                 IconButton(onClick = { accountToDelete = acc.email }) { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) }
                             }
                             if (isExpanded) {
@@ -565,7 +594,7 @@ fun AboutDialog(onDismiss: () -> Unit, onOpenSettings: () -> Unit, onOpenOEM: ()
         text = {
             androidx.compose.foundation.lazy.LazyColumn {
                 item {
-                    Text("CalAlarm Sync Version 2.0", style = MaterialTheme.typography.titleSmall)
+                    Text("CalAlarm Sync Version ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleSmall)
                     Spacer(Modifier.height(8.dp))
                     Text("Only Primary calendars are synced for performance.", style = MaterialTheme.typography.bodySmall)
                     

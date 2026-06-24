@@ -46,7 +46,7 @@ class AlarmActivity : ComponentActivity() {
         override fun run() {
             mediaPlayer?.let { mp ->
                 if (currentVolume < 1.0f) {
-                    currentVolume = (currentVolume + 0.05f).coerceAtMost(1.0f)
+                    currentVolume = (currentVolume + 0.10f).coerceAtMost(1.0f)
                     mp.setVolume(currentVolume, currentVolume)
                     volumeHandler.postDelayed(this, 1000L)
                 }
@@ -112,8 +112,8 @@ class AlarmActivity : ComponentActivity() {
             vibrator?.vibrate(longArrayOf(0, 500, 500), 0)
         }
 
-        // Auto-dismiss the alarm after 1 minute to save battery
-        autoDismissHandler.postDelayed(autoDismissRunnable, 1 * 60 * 1000L)
+        // Auto-dismiss the alarm after 2 minutes (120 seconds) to save battery
+        autoDismissHandler.postDelayed(autoDismissRunnable, 2 * 60 * 1000L)
 
         setContent {
             AlarmScreen(

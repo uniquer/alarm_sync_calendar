@@ -1,7 +1,14 @@
 package com.nen.alarmsynccalendar.sync
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
+import android.os.Build
+import android.provider.Settings
 import android.util.Log
+import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.google.gson.Gson
@@ -19,6 +26,45 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         
         val syncPrefs = applicationContext.getSharedPreferences("sync_logs", Context.MODE_PRIVATE)
         syncPrefs.edit().putLong("last_execution_time", System.currentTimeMillis()).apply()
+
+        val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        ensureSyncNotificationChannel(notificationManager)
+
+        val alarmManager = applicationContext.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+        val hasExactAlarmPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            alarmManager.canScheduleExactAlarms()
+        } else {
+            true
+        }
+
+        if (!hasExactAlarmPermission) {
+            val settingsIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                }
+            } else {
+                Intent(applicationContext, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                }
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                applicationContext,
+                201,
+                settingsIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val notification = NotificationCompat.Builder(applicationContext, "sync_channel")
+                .setSmallIcon(android.R.drawable.stat_sys_warning)
+                .setContentTitle("Exact Alarms Permission Required")
+                .setContentText("CalAlarm Sync cannot schedule precise alarms. Tap to grant permission.")
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setContentIntent(pendingIntent)
+                .setAutoCancel(true)
+                .build()
+            notificationManager.notify(201, notification)
+        } else {
+            notificationManager.cancel(201)
+        }
 
         val prefs = applicationContext.getSharedPreferences("alarms", Context.MODE_PRIVATE)
 
@@ -38,6 +84,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 
         if (accounts.isEmpty()) {
             log("[$trigger] Skipped: no accounts")
+            notificationManager.cancel(200)
             return Result.success()
         }
 
@@ -77,6 +124,43 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         }
         prefs.edit().putString("google_accounts_v3", gson.toJson(updatedAccounts)).apply()
 
+        // Check if any accounts failed to sync
+        val failedAccounts = results.filter { it.status != AccountSyncStatus.OK }
+        if (failedAccounts.isNotEmpty()) {
+            val failedSummary = failedAccounts.joinToString(", ") { acc ->
+                val reason = when (acc.status) {
+                    AccountSyncStatus.AUTH_ERROR -> "Auth Error"
+                    AccountSyncStatus.TIMEOUT -> "Timeout"
+                    AccountSyncStatus.NETWORK_ERROR -> "Network Error"
+                    else -> "Error"
+                }
+                "${acc.email} ($reason)"
+            }
+
+            val appIntent = Intent(applicationContext, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                applicationContext,
+                200,
+                appIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val notification = NotificationCompat.Builder(applicationContext, "sync_channel")
+                .setSmallIcon(android.R.drawable.stat_notify_sync_noanim)
+                .setContentTitle("Calendar Sync Failed")
+                .setContentText("Failed to sync: $failedSummary")
+                .setStyle(NotificationCompat.BigTextStyle().bigText("Failed to sync the following accounts:\n$failedSummary\n\nOpen the app to fix settings or re-connect accounts."))
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setContentIntent(pendingIntent)
+                .setAutoCancel(true)
+                .build()
+            notificationManager.notify(200, notification)
+        } else {
+            notificationManager.cancel(200)
+        }
+
         val allEvents = results
             .flatMap { it.events }
             .distinctBy { "${it.title}|${it.startTime}" }
@@ -100,6 +184,19 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 
         log("[$trigger] OK: ${syncedEmails.size}/${accounts.size}")
         return Result.success()
+    }
+
+    private fun ensureSyncNotificationChannel(notificationManager: NotificationManager) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                "sync_channel",
+                "Sync & Permission Alerts",
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "Alerts about calendar sync failures and background permission errors."
+            }
+            notificationManager.createNotificationChannel(channel)
+        }
     }
 
     private fun log(message: String) {

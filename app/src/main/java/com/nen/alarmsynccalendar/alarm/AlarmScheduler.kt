@@ -7,6 +7,7 @@ import android.content.Intent
 import android.os.Build
 import android.provider.Settings
 import android.util.Log
+import android.widget.Toast
 
 class AlarmScheduler(private val context: Context) {
     private val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
@@ -14,8 +15,18 @@ class AlarmScheduler(private val context: Context) {
     fun scheduleAlarm(id: Int, timeInMillis: Long, message: String, meetingLink: String? = null) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (!alarmManager.canScheduleExactAlarms()) {
-                val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
-                context.startActivity(intent)
+                try {
+                    val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    context.startActivity(intent)
+                } catch (e: Exception) {
+                    Toast.makeText(
+                        context,
+                        "Exact alarm permission required. Please enable it in Settings under Special App Access.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
                 return
             }
         }
