@@ -300,9 +300,12 @@ fun CalendarsTabScreen(cloudEvents: List<EventInfo>, accounts: List<ConnectedClo
         val lastExecutionTime = syncPrefs.getLong("last_execution_time", 0L)
         val firstRunTime = syncPrefs.getLong("first_run_time", 0L)
         val currentTime = System.currentTimeMillis()
-        val threshold = 45 * 60 * 1000L // 45 minutes
+        val threshold = 200 * 60 * 1000L // 200 minutes (3h 20m doze buffer)
+        var snoozeUntil by remember { mutableStateOf(syncPrefs.getLong("snooze_until", 0L)) }
 
-        val showWarning = if (lastExecutionTime == 0L) {
+        val showWarning = if (currentTime < snoozeUntil) {
+            false
+        } else if (lastExecutionTime == 0L) {
             firstRunTime > 0L && (currentTime - firstRunTime > threshold)
         } else {
             currentTime - lastExecutionTime > threshold
@@ -332,22 +335,41 @@ fun CalendarsTabScreen(cloudEvents: List<EventInfo>, accounts: List<ConnectedClo
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Spacer(Modifier.height(12.dp))
-                    Button(
-                        onClick = {
-                            val manufacturer = android.os.Build.MANUFACTURER.lowercase()
-                            val isKnown = manufacturer.contains("xiaomi") || manufacturer.contains("oppo") || manufacturer.contains("realme") || manufacturer.contains("vivo")
-                            if (isKnown) {
-                                (context as? MainActivity)?.openOEMSettings()
-                            } else {
-                                (context as? MainActivity)?.openSettings()
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.error,
-                            contentColor = MaterialTheme.colorScheme.onError
-                        )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("Fix Settings")
+                        Button(
+                            onClick = {
+                                val manufacturer = android.os.Build.MANUFACTURER.lowercase()
+                                val isKnown = manufacturer.contains("xiaomi") || manufacturer.contains("oppo") || manufacturer.contains("realme") || manufacturer.contains("vivo")
+                                if (isKnown) {
+                                    (context as? MainActivity)?.openOEMSettings()
+                                } else {
+                                    (context as? MainActivity)?.openSettings()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error,
+                                contentColor = MaterialTheme.colorScheme.onError
+                            )
+                        ) {
+                            Text("Fix Settings")
+                        }
+                        
+                        OutlinedButton(
+                            onClick = {
+                                val newSnooze = System.currentTimeMillis() + (24 * 60 * 60 * 1000L)
+                                syncPrefs.edit().putLong("snooze_until", newSnooze).apply()
+                                snoozeUntil = newSnooze
+                            },
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.error)
+                        ) {
+                            Text("Snooze for 24 hrs")
+                        }
                     }
                 }
             }
@@ -613,9 +635,12 @@ fun AboutDialog(onDismiss: () -> Unit, onOpenSettings: () -> Unit, onOpenOEM: ()
                     val lastExecutionTime = syncPrefs.getLong("last_execution_time", 0L)
                     val firstRunTime = syncPrefs.getLong("first_run_time", 0L)
                     val currentTime = System.currentTimeMillis()
-                    val threshold = 45 * 60 * 1000L // 45 minutes
+                    val threshold = 200 * 60 * 1000L // 200 minutes (3h 20m doze buffer)
+                    val snoozeUntil = syncPrefs.getLong("snooze_until", 0L)
 
-                    val showWarning = if (lastExecutionTime == 0L) {
+                    val showWarning = if (currentTime < snoozeUntil) {
+                        false
+                    } else if (lastExecutionTime == 0L) {
                         firstRunTime > 0L && (currentTime - firstRunTime > threshold)
                     } else {
                         currentTime - lastExecutionTime > threshold
