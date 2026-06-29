@@ -150,8 +150,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Pick up any alarm changes written by SyncWorker while the app was in the background.
+        // Pick up any changes written by SyncWorker while the app was in the background.
         viewModel.loadAlarms()
+        viewModel.loadAccounts()
+        viewModel.loadCloudEventsCache()
+        viewModel.loadExcluded()
 
         val staleSyncThreshold = 30 * 60 * 1000L
         if (viewModel.isCloudSignedIn && System.currentTimeMillis() - viewModel.lastSyncTime > staleSyncThreshold) {

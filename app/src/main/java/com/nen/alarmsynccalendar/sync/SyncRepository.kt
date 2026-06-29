@@ -23,7 +23,7 @@ data class AccountFetchResult(
     val status: AccountSyncStatus
 )
 
-private class OutlookAuthException(message: String) : Exception(message)
+class OutlookAuthException(message: String) : Exception(message)
 
 class SyncRepository(private val context: Context) {
     private val googleScanner = GoogleCalendarScanner(context)

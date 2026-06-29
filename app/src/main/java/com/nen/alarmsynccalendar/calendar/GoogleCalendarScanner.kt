@@ -60,7 +60,8 @@ class GoogleCalendarScanner(private val context: Context) {
         // Let IOException propagate — callers (SyncRepository) catch it and fall back to cache.
         val conn = url.openConnection() as HttpURLConnection
         conn.setRequestProperty("Authorization", "Bearer $token")
-        if (conn.responseCode == 200) {
+        val responseCode = conn.responseCode
+        if (responseCode == 200) {
             val items = JSONObject(conn.inputStream.bufferedReader().readText()).optJSONArray("items")
             if (items != null) for (i in 0 until items.length()) {
                 val item = items.getJSONObject(i)
@@ -94,6 +95,10 @@ class GoogleCalendarScanner(private val context: Context) {
 
                 events.add(EventInfo(id.hashCode().toLong(), id, recurringId, recurringId != null || item.has("recurrence"), null, item.optString("summary", "No Title"), parseIso(startStr), 0L, desc, org, email, meetingLink))
             }
+        } else if (responseCode == 401 || responseCode == 403) {
+            throw com.google.android.gms.auth.GoogleAuthException("Google Calendar Auth failed: HTTP $responseCode")
+        } else {
+            throw java.io.IOException("Google Calendar fetch failed: HTTP $responseCode")
         }
         return events
     }

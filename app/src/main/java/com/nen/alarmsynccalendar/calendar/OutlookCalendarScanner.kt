@@ -10,6 +10,7 @@ import java.util.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.nen.alarmsynccalendar.EventInfo
+import com.nen.alarmsynccalendar.sync.OutlookAuthException
 
 class OutlookCalendarScanner(private val context: Context) {
     suspend fun fetchAvailableCalendars(email: String, token: String): List<GoogleCalendarInfo> = withContext(Dispatchers.IO) {
@@ -51,7 +52,8 @@ class OutlookCalendarScanner(private val context: Context) {
         val conn = url.openConnection() as HttpURLConnection
         conn.setRequestProperty("Authorization", "Bearer $token")
         conn.setRequestProperty("Prefer", "outlook.timezone=\"UTC\"")
-        if (conn.responseCode == 200) {
+        val responseCode = conn.responseCode
+        if (responseCode == 200) {
             val value = JSONObject(conn.inputStream.bufferedReader().readText()).optJSONArray("value")
             if (value != null) for (i in 0 until value.length()) {
                 val item = value.getJSONObject(i)
@@ -70,6 +72,10 @@ class OutlookCalendarScanner(private val context: Context) {
 
                 events.add(EventInfo(id.hashCode().toLong(), id, seriesId, seriesId != null, null, item.optString("subject", "No Title"), startTs, 0L, desc, org, email, meetingLink))
             }
+        } else if (responseCode == 401 || responseCode == 403) {
+            throw OutlookAuthException("Outlook Calendar Auth failed: HTTP $responseCode")
+        } else {
+            throw java.io.IOException("Outlook Calendar fetch failed: HTTP $responseCode")
         }
         return events
     }

@@ -198,7 +198,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun checkCloudConnection() { isCloudSignedIn = connectedAccounts.isNotEmpty() }
 
-    private fun loadAccounts() {
+    fun loadAccounts() {
         lastSyncTime = prefs().getLong("last_google_sync", 0L)
         val json = prefs().getString("google_accounts_v3", "[]")
         val list: List<ConnectedCloudAccount> = try {
@@ -208,7 +208,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         connectedAccounts.addAll(list)
     }
 
-    private fun loadCloudEventsCache() {
+    fun loadCloudEventsCache() {
         val json = prefs().getString("cloud_events_cache", "[]")
         val list: List<EventInfo> = try {
             gson.fromJson(json, object : TypeToken<List<EventInfo>>() {}.type)
@@ -225,7 +225,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .commit()
     }
 
-    private fun loadExcluded() {
+    fun loadExcluded() {
         val j = prefs().getString("excluded_list", null) ?: return
         try {
             val list: List<ExcludedEvent> = gson.fromJson(j, object : TypeToken<List<ExcludedEvent>>() {}.type)

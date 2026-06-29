@@ -124,8 +124,8 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         }
         prefs.edit().putString("google_accounts_v3", gson.toJson(updatedAccounts)).apply()
 
-        // Check if any accounts failed to sync
-        val failedAccounts = results.filter { it.status != AccountSyncStatus.OK }
+        // Check if any accounts had authentication failures (user-actionable)
+        val failedAccounts = results.filter { it.status == AccountSyncStatus.AUTH_ERROR }
         if (failedAccounts.isNotEmpty()) {
             val failedSummary = failedAccounts.joinToString(", ") { acc ->
                 val reason = when (acc.status) {
