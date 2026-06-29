@@ -40,10 +40,31 @@ class MainActivity : ComponentActivity() {
 
     private val googleSignInLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == RESULT_OK) {
-                val account = GoogleSignIn.getSignedInAccountFromIntent(result.data).result
+            try {
+                val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+                val account = task.getResult(com.google.android.gms.common.api.ApiException::class.java)
                 if (account?.email != null) {
                     viewModel.addAccount(ConnectedCloudAccount(account.email!!, CloudProvider.GOOGLE))
+                } else {
+                    android.widget.Toast.makeText(this, "Sign-in failed: No email associated with this account.", android.widget.Toast.LENGTH_LONG).show()
+                }
+            } catch (e: com.google.android.gms.common.api.ApiException) {
+                val statusCode = e.statusCode
+                val errorMsg = when (statusCode) {
+                    com.google.android.gms.common.api.CommonStatusCodes.NETWORK_ERROR -> 
+                        "Network error. Please check your internet connection."
+                    com.google.android.gms.common.api.CommonStatusCodes.INVALID_ACCOUNT -> 
+                        "Invalid account."
+                    12501 -> null // SIGN_IN_CANCELLED: User cancelled the flow, fail silently
+                    12502 -> "Sign-in in progress. Please wait."
+                    else -> "Google Sign-in failed (Code: $statusCode). Please try again."
+                }
+                if (errorMsg != null) {
+                    android.widget.Toast.makeText(this, errorMsg, android.widget.Toast.LENGTH_LONG).show()
+                }
+            } catch (e: Exception) {
+                if (result.resultCode != RESULT_CANCELED) {
+                    android.widget.Toast.makeText(this, "Unexpected error: ${e.localizedMessage}", android.widget.Toast.LENGTH_LONG).show()
                 }
             }
         }
@@ -54,7 +75,8 @@ class MainActivity : ComponentActivity() {
                 val response = AuthorizationResponse.fromIntent(result.data!!)
                 if (response != null) {
                     viewModel.isSyncing = true
-                    authService.performTokenRequest(response.createTokenExchangeRequest()) { tokenResponse, _ ->
+                    authService.performTokenRequest(response.createTokenExchangeRequest()) { tokenResponse, ex ->
+                        viewModel.isSyncing = false
                         if (tokenResponse != null) {
                             val email = tokenResponse.idToken?.let { idToken ->
                                 try {
@@ -72,10 +94,15 @@ class MainActivity : ComponentActivity() {
                                 tokenResponse.accessToken, tokenResponse.refreshToken
                             ))
                         } else {
-                            viewModel.isSyncing = false
+                            val errorMsg = ex?.localizedMessage ?: "Outlook Sign-in failed."
+                            android.widget.Toast.makeText(this, errorMsg, android.widget.Toast.LENGTH_LONG).show()
                         }
                     }
+                } else {
+                    android.widget.Toast.makeText(this, "Outlook sign-in cancelled or failed.", android.widget.Toast.LENGTH_LONG).show()
                 }
+            } else if (result.resultCode != RESULT_CANCELED) {
+                android.widget.Toast.makeText(this, "Outlook sign-in failed (Result: ${result.resultCode}).", android.widget.Toast.LENGTH_LONG).show()
             }
         }
 
