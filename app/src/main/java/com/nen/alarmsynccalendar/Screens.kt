@@ -419,7 +419,7 @@ fun CalendarsTabScreen(cloudEvents: List<EventInfo>, accounts: List<ConnectedClo
                     var isExpanded by remember { mutableStateOf(false) }
                     val accountEvents = cloudEvents.filter {
                         it.accountEmail == acc.email && (it.startTime - 5 * 60 * 1000L) > currentTime
-                    }
+                    }.sortedBy { it.startTime }
                     
                     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
                         Column {

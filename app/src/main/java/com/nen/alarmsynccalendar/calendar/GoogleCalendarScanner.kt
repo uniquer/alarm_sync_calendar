@@ -56,13 +56,22 @@ class GoogleCalendarScanner(private val context: Context) {
         val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
         val start = sdf.format(Date()); val end = sdf.format(Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 60) }.time)
         val encodedId = java.net.URLEncoder.encode(calendarId, "UTF-8")
-        val url = URL("https://www.googleapis.com/calendar/v3/calendars/$encodedId/events?timeMin=$start&timeMax=$end&singleEvents=true&orderBy=startTime&conferenceDataVersion=1")
-        // Let IOException propagate — callers (SyncRepository) catch it and fall back to cache.
-        val conn = url.openConnection() as HttpURLConnection
-        conn.setRequestProperty("Authorization", "Bearer $token")
-        val responseCode = conn.responseCode
-        if (responseCode == 200) {
-            val items = JSONObject(conn.inputStream.bufferedReader().readText()).optJSONArray("items")
+        val baseUrl = "https://www.googleapis.com/calendar/v3/calendars/$encodedId/events?timeMin=$start&timeMax=$end&singleEvents=true&orderBy=startTime&conferenceDataVersion=1&maxResults=250"
+
+        // Follow nextPageToken so busy calendars beyond one page aren't truncated.
+        var pageToken: String? = null
+        var pagesFetched = 0
+        do {
+            val url = URL(baseUrl + (pageToken?.let { "&pageToken=$it" } ?: ""))
+            // Let IOException propagate — callers (SyncRepository) catch it and fall back to cache.
+            val conn = url.openConnection() as HttpURLConnection
+            conn.setRequestProperty("Authorization", "Bearer $token")
+            val responseCode = conn.responseCode
+            if (responseCode == 200) {
+            val json = JSONObject(conn.inputStream.bufferedReader().readText())
+            pageToken = json.optString("nextPageToken").takeIf { it.isNotBlank() }
+            pagesFetched++
+            val items = json.optJSONArray("items")
             if (items != null) for (i in 0 until items.length()) {
                 val item = items.getJSONObject(i)
                 if (item.optString("status") == "cancelled") continue
@@ -95,11 +104,12 @@ class GoogleCalendarScanner(private val context: Context) {
 
                 events.add(EventInfo(id.hashCode().toLong(), id, recurringId, recurringId != null || item.has("recurrence"), null, item.optString("summary", "No Title"), parseIso(startStr), 0L, desc, org, email, meetingLink, location = MeetingUtils.extractPhysicalLocation(loc)))
             }
-        } else if (responseCode == 401 || responseCode == 403) {
-            throw com.google.android.gms.auth.GoogleAuthException("Google Calendar Auth failed: HTTP $responseCode")
-        } else {
-            throw java.io.IOException("Google Calendar fetch failed: HTTP $responseCode")
-        }
+            } else if (responseCode == 401 || responseCode == 403) {
+                throw com.google.android.gms.auth.GoogleAuthException("Google Calendar Auth failed: HTTP $responseCode")
+            } else {
+                throw java.io.IOException("Google Calendar fetch failed: HTTP $responseCode")
+            }
+        } while (pageToken != null && pagesFetched < 5)
         return events
     }
 

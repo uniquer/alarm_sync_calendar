@@ -115,6 +115,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         // Fetch all accounts in parallel, each with its own 10-second timeout.
         // Falls back to cached events per account on any error.
         val results = repo.fetchAllAccountEvents(accounts, cachedEvents)
+        results.forEach { r -> log("[$trigger] ${r.email}: ${r.events.size} events, ${r.status}") }
 
         // Persist updated syncStatus and any rotated Outlook tokens.
         val updatedAccounts = accounts.map { acc ->
@@ -185,7 +186,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             prefs.edit().putString("alarm_list", gson.toJson(newAlarms)).apply()
         }
 
-        log("[$trigger] OK: ${syncedEmails.size}/${accounts.size}")
+        log("[$trigger] Done: ${syncedEmails.size}/${accounts.size} accounts OK, ${allEvents.size} events, alarms ${if (changed) "updated" else "unchanged"}")
         return Result.success()
     }
 

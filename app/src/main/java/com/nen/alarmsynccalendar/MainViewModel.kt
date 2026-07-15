@@ -55,11 +55,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun refreshCloudEvents(isManual: Boolean = false) {
         viewModelScope.launch {
             isSyncing = true
+            val trigger = if (isManual) "Manual" else "App refresh"
             try {
                 val results = repo.fetchAllAccountEvents(
                     connectedAccounts.toList(),
                     cloudEvents.toList()
                 )
+                results.forEach { r ->
+                    logSync("[$trigger] ${r.email}: ${r.events.size} events, ${r.status}")
+                }
 
                 // Update per-account sync status; reload from prefs first so we
                 // pick up any Outlook token rotation that refreshOutlookToken persisted.
@@ -100,10 +104,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 cloudEvents.addAll(allEvents)
                 saveCloudEventsCache()
 
+                logSync("[$trigger] Done: ${syncedEmails.size}/${results.size} accounts OK, ${allEvents.size} events, alarms ${if (changed) "updated" else "unchanged"}")
             } finally {
                 isSyncing = false
             }
         }
+    }
+
+    private fun logSync(message: String) {
+        val prefs = getApplication<Application>().getSharedPreferences("sync_logs", Context.MODE_PRIVATE)
+        val existing = prefs.getString("history", "") ?: ""
+        val ts = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+        prefs.edit().putString("history", "[$ts] $message\n$existing".take(5000)).apply()
     }
 
     // ── Settings ─────────────────────────────────────────────────────────────
