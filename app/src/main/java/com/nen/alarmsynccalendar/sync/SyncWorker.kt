@@ -70,8 +70,28 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 
         val lastGoogleSync = prefs.getLong("last_google_sync", 0L)
         val now = System.currentTimeMillis()
+
+        val type = when (trigger) {
+            "Periodic", "Timer Triggered (Periodic)" -> "Periodic"
+            "Fallback" -> "Fallback"
+            "User Awake" -> "User Awake"
+            "Manual" -> "Manual"
+            "App refresh", "App Refresh" -> "App Refresh"
+            else -> trigger
+        }
+
+        val hasNext = (type == "Periodic" || type == "Fallback")
+        val nextTimeStr = if (hasNext) {
+            val offsetMs = if (type == "Periodic") 30 * 60 * 1000L else 120 * 60 * 1000L
+            val nextTime = now + offsetMs
+            val timeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(nextTime))
+            " Next run: $timeStr"
+        } else {
+            ""
+        }
+
         if (now - lastGoogleSync < 10 * 60 * 1000L) {
-            log("[$trigger] Skipped: synced recently")
+            log("[$type] Skipped: synced recently$nextTimeStr")
             return Result.success()
         }
 
@@ -83,7 +103,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         } catch (e: Exception) { emptyList() }
 
         if (accounts.isEmpty()) {
-            log("[$trigger] Skipped: no accounts")
+            log("[$type] Skipped: no accounts$nextTimeStr")
             notificationManager.cancel(200)
             return Result.success()
         }
@@ -94,7 +114,7 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
                 object : TypeToken<List<ScheduledAlarm>>() {}.type
             )
         } catch (e: Exception) {
-            log("[$trigger] Failed: read error")
+            log("[$type] Failed: read error")
             return Result.failure()
         }
 
@@ -115,7 +135,6 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         // Fetch all accounts in parallel, each with its own 10-second timeout.
         // Falls back to cached events per account on any error.
         val results = repo.fetchAllAccountEvents(accounts, cachedEvents)
-        results.forEach { r -> log("[$trigger] ${r.email}: ${r.events.size} events, ${r.status}") }
 
         // Persist updated syncStatus and any rotated Outlook tokens.
         val updatedAccounts = accounts.map { acc ->
@@ -186,8 +205,67 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             prefs.edit().putString("alarm_list", gson.toJson(newAlarms)).apply()
         }
 
-        log("[$trigger] Done: ${syncedEmails.size}/${accounts.size} accounts OK, ${allEvents.size} events, alarms ${if (changed) "updated" else "unchanged"}")
+
+
+        results.forEach { r ->
+            val obfuscated = obfuscateEmail(r.email)
+            val updateCount = calculateUpdateCount(r.email, alarms, newAlarms, allEvents, cachedEvents)
+            log("[$type] $obfuscated overall:${r.events.size} update:$updateCount$nextTimeStr")
+        }
+
+        log("[$type] Done: ${syncedEmails.size}/${accounts.size} accounts OK, ${allEvents.size} events, alarms ${if (changed) "updated" else "unchanged"}")
         return Result.success()
+    }
+
+    private fun obfuscateEmail(email: String): String {
+        val parts = email.split("@")
+        if (parts.size != 2) return email
+        val username = parts[0]
+        val domain = parts[1]
+        val obfuscatedUser = if (username.length > 3) {
+            username.substring(0, 3) + "..."
+        } else {
+            username + "..."
+        }
+        val domainName = domain.split(".")[0]
+        val obfuscatedDomain = if (domainName.length > 2) {
+            domainName.substring(0, 2)
+        } else {
+            domainName
+        }
+        return "$obfuscatedUser@$obfuscatedDomain"
+    }
+
+    private fun calculateUpdateCount(
+        email: String,
+        oldAlarms: List<ScheduledAlarm>,
+        newAlarms: List<ScheduledAlarm>,
+        allEvents: List<EventInfo>,
+        cachedEvents: List<EventInfo>
+    ): Int {
+        var count = 0
+        count += newAlarms.count { newAlarm ->
+            oldAlarms.none { it.googleEventId == newAlarm.googleEventId } &&
+            allEvents.any { it.googleEventId == newAlarm.googleEventId && it.accountEmail == email }
+        }
+        count += newAlarms.count { newAlarm ->
+            val oldAlarm = oldAlarms.find { it.googleEventId == newAlarm.googleEventId }
+            oldAlarm != null && (
+                oldAlarm.time != newAlarm.time ||
+                oldAlarm.meetingLink != newAlarm.meetingLink ||
+                oldAlarm.location != newAlarm.location ||
+                oldAlarm.distanceKm != newAlarm.distanceKm ||
+                oldAlarm.travelTimeMinutes != newAlarm.travelTimeMinutes ||
+                oldAlarm.noDrivingRoute != newAlarm.noDrivingRoute ||
+                oldAlarm.eventStartTime != newAlarm.eventStartTime
+            ) && allEvents.any { it.googleEventId == newAlarm.googleEventId && it.accountEmail == email }
+        }
+        count += oldAlarms.count { oldAlarm ->
+            newAlarms.none { it.googleEventId == oldAlarm.googleEventId } &&
+            (allEvents.any { it.googleEventId == oldAlarm.googleEventId && it.accountEmail == email } ||
+             cachedEvents.any { it.googleEventId == oldAlarm.googleEventId && it.accountEmail == email })
+        }
+        return count
     }
 
     private fun ensureSyncNotificationChannel(notificationManager: NotificationManager) {

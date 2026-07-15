@@ -188,8 +188,7 @@ class MainActivity : ComponentActivity() {
         viewModel.loadCloudEventsCache()
         viewModel.loadExcluded()
 
-        val staleSyncThreshold = 30 * 60 * 1000L
-        if (viewModel.isCloudSignedIn && System.currentTimeMillis() - viewModel.lastSyncTime > staleSyncThreshold) {
+        if (viewModel.isCloudSignedIn) {
             viewModel.refreshCloudEvents()
         }
     }
@@ -254,9 +253,9 @@ class MainActivity : ComponentActivity() {
         val nextFallback = now + (120 * 60 * 1000L)
 
         if (now - lastLogTime > 25 * 60 * 1000L) {
-            val sdf = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault())
-            logToHistory("Periodic enqueued. Next: ~${sdf.format(java.util.Date(nextPeriodic))}")
-            logToHistory("Fallback scheduled. Next: ~${sdf.format(java.util.Date(nextFallback))}")
+            val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+            logToHistory("[Scheduler] Periodic scheduled. Next run: ${sdf.format(java.util.Date(nextPeriodic))}")
+            logToHistory("[Scheduler] Fallback scheduled. Next run: ${sdf.format(java.util.Date(nextFallback))}")
             syncPrefs.edit().putLong("last_enqueue_log_time", now).apply()
         }
 

@@ -54,16 +54,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refreshCloudEvents(isManual: Boolean = false) {
         viewModelScope.launch {
+            val type = if (isManual) "Manual" else "App Refresh"
+            val lastGoogleSync = prefs().getLong("last_google_sync", 0L)
+            val now = System.currentTimeMillis()
+            if (!isManual && now - lastGoogleSync < 10 * 60 * 1000L) {
+                logSync("[$type] Skipped: synced recently")
+                return@launch
+            }
+
             isSyncing = true
-            val trigger = if (isManual) "Manual" else "App refresh"
             try {
                 val results = repo.fetchAllAccountEvents(
                     connectedAccounts.toList(),
                     cloudEvents.toList()
                 )
-                results.forEach { r ->
-                    logSync("[$trigger] ${r.email}: ${r.events.size} events, ${r.status}")
-                }
 
                 // Update per-account sync status; reload from prefs first so we
                 // pick up any Outlook token rotation that refreshOutlookToken persisted.
@@ -88,9 +92,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     .map { it.email }
                     .toSet()
 
+                val oldAlarms = activeAlarms.toList()
                 val (newAlarms, changed) = repo.reconcileAlarms(
                     allEvents,
-                    activeAlarms.toList(),
+                    oldAlarms,
                     excludedEvents.toList(),
                     syncedEmails
                 )
@@ -104,11 +109,68 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 cloudEvents.addAll(allEvents)
                 saveCloudEventsCache()
 
-                logSync("[$trigger] Done: ${syncedEmails.size}/${results.size} accounts OK, ${allEvents.size} events, alarms ${if (changed) "updated" else "unchanged"}")
+                results.forEach { r ->
+                    val obfuscated = obfuscateEmail(r.email)
+                    val updateCount = calculateUpdateCount(r.email, oldAlarms, newAlarms, allEvents, cloudEvents.toList())
+                    logSync("[$type] $obfuscated overall:${r.events.size} update:$updateCount")
+                }
+
+                logSync("[$type] Done: ${syncedEmails.size}/${results.size} accounts OK, ${allEvents.size} events, alarms ${if (changed) "updated" else "unchanged"}")
             } finally {
                 isSyncing = false
             }
         }
+    }
+
+    private fun obfuscateEmail(email: String): String {
+        val parts = email.split("@")
+        if (parts.size != 2) return email
+        val username = parts[0]
+        val domain = parts[1]
+        val obfuscatedUser = if (username.length > 3) {
+            username.substring(0, 3) + "..."
+        } else {
+            username + "..."
+        }
+        val domainName = domain.split(".")[0]
+        val obfuscatedDomain = if (domainName.length > 2) {
+            domainName.substring(0, 2)
+        } else {
+            domainName
+        }
+        return "$obfuscatedUser@$obfuscatedDomain"
+    }
+
+    private fun calculateUpdateCount(
+        email: String,
+        oldAlarms: List<ScheduledAlarm>,
+        newAlarms: List<ScheduledAlarm>,
+        allEvents: List<EventInfo>,
+        cachedEvents: List<EventInfo>
+    ): Int {
+        var count = 0
+        count += newAlarms.count { newAlarm ->
+            oldAlarms.none { it.googleEventId == newAlarm.googleEventId } &&
+            allEvents.any { it.googleEventId == newAlarm.googleEventId && it.accountEmail == email }
+        }
+        count += newAlarms.count { newAlarm ->
+            val oldAlarm = oldAlarms.find { it.googleEventId == newAlarm.googleEventId }
+            oldAlarm != null && (
+                oldAlarm.time != newAlarm.time ||
+                oldAlarm.meetingLink != newAlarm.meetingLink ||
+                oldAlarm.location != newAlarm.location ||
+                oldAlarm.distanceKm != newAlarm.distanceKm ||
+                oldAlarm.travelTimeMinutes != newAlarm.travelTimeMinutes ||
+                oldAlarm.noDrivingRoute != newAlarm.noDrivingRoute ||
+                oldAlarm.eventStartTime != newAlarm.eventStartTime
+            ) && allEvents.any { it.googleEventId == newAlarm.googleEventId && it.accountEmail == email }
+        }
+        count += oldAlarms.count { oldAlarm ->
+            newAlarms.none { it.googleEventId == oldAlarm.googleEventId } &&
+            (allEvents.any { it.googleEventId == oldAlarm.googleEventId && it.accountEmail == email } ||
+             cachedEvents.any { it.googleEventId == oldAlarm.googleEventId && it.accountEmail == email })
+        }
+        return count
     }
 
     private fun logSync(message: String) {
