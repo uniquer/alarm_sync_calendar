@@ -21,6 +21,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     var isCloudSignedIn by mutableStateOf(false)
     var lastSyncTime by mutableStateOf(0L)
     var isSyncing by mutableStateOf(false)
+    var appSettings by mutableStateOf(AppSettings())
+        private set
+    var showLocationPrompt by mutableStateOf(false)
 
     private val gson = Gson()
     private val repo = SyncRepository(app)
@@ -39,6 +42,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         prefs().registerOnSharedPreferenceChangeListener(preferenceChangeListener)
+        appSettings = AppSettings.load(app)
         loadAccounts()
         loadCloudEventsCache()
         checkCloudConnection()
@@ -68,9 +72,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
                 saveAccounts()
 
-                val allEvents = results
-                    .flatMap { it.events }
-                    .distinctBy { "${it.title}|${it.startTime}" }
+                val allEvents = repo.enrichWithTravelInfo(
+                    results
+                        .flatMap { it.events }
+                        .distinctBy { "${it.title}|${it.startTime}" },
+                    cloudEvents.toList()
+                )
 
                 val syncedEmails = results
                     .filter { it.status == AccountSyncStatus.OK }
@@ -99,6 +106,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ── Settings ─────────────────────────────────────────────────────────────
+
+    fun updateSettings(newSettings: AppSettings) {
+        appSettings = newSettings
+        newSettings.save(getApplication())
+        // Re-enrich travel info and reschedule alarms with the new lead times.
+        if (isCloudSignedIn) refreshCloudEvents(isManual = true)
+    }
+
     // ── Account management ────────────────────────────────────────────────────
 
     fun addAccount(account: ConnectedCloudAccount) {
@@ -106,6 +122,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         connectedAccounts.add(account)
         saveAccounts()
         isCloudSignedIn = true
+        if (!appSettings.hasStartLocation) showLocationPrompt = true
         refreshCloudEvents(isManual = true)
     }
 
@@ -144,14 +161,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             saveExcluded()
 
             if (event.googleEventId != null && activeAlarms.none { it.googleEventId == event.googleEventId }) {
-                val targetTime = event.startTime - (5 * 60 * 1000)
+                val targetTime = repo.alarmTimeForEvent(event, appSettings)
                 val id = repo.alarmIdForEvent(event.googleEventId)
-                alarmScheduler.scheduleAlarm(id, targetTime, event.title, event.meetingLink)
+                alarmScheduler.scheduleAlarm(id, targetTime, event.title, event.meetingLink, event.location, event.travelTimeMinutes, event.distanceKm, event.noDrivingRoute)
                 activeAlarms.add(ScheduledAlarm(
                     id, targetTime, event.title,
                     googleEventId = event.googleEventId,
                     googleRecurrenceInfo = event.recurringEventId ?: if (event.isRecurring) "true" else null,
-                    meetingLink = event.meetingLink
+                    meetingLink = event.meetingLink,
+                    location = event.location,
+                    distanceKm = event.distanceKm,
+                    travelTimeMinutes = event.travelTimeMinutes,
+                    noDrivingRoute = event.noDrivingRoute,
+                    eventStartTime = event.startTime
                 ))
                 saveAlarms()
             }

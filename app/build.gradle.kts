@@ -15,6 +15,13 @@ android {
         keystoreProperties.load(keystorePropertiesFile.inputStream())
     }
 
+    val envFile = rootProject.file(".env")
+    val envProperties = Properties()
+    if (envFile.exists()) {
+        envFile.inputStream().use { envProperties.load(it) }
+    }
+    val mapsApiKey = envProperties.getProperty("MAPS_API_KEY") ?: ""
+
     signingConfigs {
         create("release") {
             keyAlias = keystoreProperties.getProperty("keyAlias")
@@ -28,14 +35,15 @@ android {
         applicationId = "com.nen.alarmsynccalendar"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "1.6"
+        versionCode = 9
+        versionName = "1.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
         }
         manifestPlaceholders["appAuthRedirectScheme"] = "msauth"
+        buildConfigField("String", "MAPS_API_KEY", "\"$mapsApiKey\"")
     }
 
     buildTypes {

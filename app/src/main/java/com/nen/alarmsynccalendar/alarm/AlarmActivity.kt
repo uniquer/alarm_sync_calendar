@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.VideoCall
 import androidx.compose.runtime.Composable
@@ -59,6 +60,11 @@ class AlarmActivity : ComponentActivity() {
         
         val message = intent.getStringExtra("ALARM_MESSAGE") ?: "Meeting Alarm!"
         val meetingLink = intent.getStringExtra("ALARM_MEETING_LINK")
+        // Sanitize so stale placeholder locations ("online") never show at ring time
+        val location = com.nen.alarmsynccalendar.calendar.MeetingUtils.extractPhysicalLocation(intent.getStringExtra("ALARM_LOCATION"))
+        val travelMinutes = if (intent.hasExtra("ALARM_TRAVEL_MINUTES")) intent.getIntExtra("ALARM_TRAVEL_MINUTES", 0) else null
+        val distanceKm = if (intent.hasExtra("ALARM_DISTANCE_KM")) intent.getDoubleExtra("ALARM_DISTANCE_KM", 0.0) else null
+        val noRoute = intent.getBooleanExtra("ALARM_NO_ROUTE", false)
         alarmId = intent.getIntExtra("ALARM_ID", -1)
 
         // Wake the screen and show over lockscreen
@@ -119,8 +125,12 @@ class AlarmActivity : ComponentActivity() {
             AlarmScreen(
                 message = message,
                 meetingLink = meetingLink,
+                location = location,
+                travelMinutes = travelMinutes,
+                isLongTrip = noRoute || (distanceKm != null && distanceKm > com.nen.alarmsynccalendar.LONG_TRIP_THRESHOLD_KM),
                 onDismiss = { dismissAlarm() },
-                onJoin = { link -> joinMeetingAndDismiss(link) }
+                onJoin = { link -> joinMeetingAndDismiss(link) },
+                onCheckMap = { loc -> openMapAndDismiss(loc) }
             )
         }
     }
@@ -173,6 +183,34 @@ class AlarmActivity : ComponentActivity() {
         }
     }
 
+    private fun openMapAndDismiss(location: String) {
+        try {
+            volumeHandler.removeCallbacks(volumeRunnable)
+            mediaPlayer?.stop()
+            mediaPlayer?.release()
+            mediaPlayer = null
+            vibrator?.cancel()
+            autoDismissHandler.removeCallbacks(autoDismissRunnable)
+
+            if (alarmId != -1) {
+                val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                notificationManager.cancel(alarmId)
+            }
+
+            val settings = com.nen.alarmsynccalendar.AppSettings.load(this)
+            val dest = java.net.URLEncoder.encode(location, "UTF-8")
+            // Omitting origin makes Google Maps default to the user's current position.
+            val origin = if (settings.hasStartLocation) "&origin=${settings.startLocationLat},${settings.startLocationLng}" else ""
+            val url = "https://www.google.com/maps/dir/?api=1$origin&destination=$dest&travelmode=driving"
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            })
+            finishAndRemoveTask()
+        } catch (e: Exception) {
+            finish()
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         volumeHandler.removeCallbacks(volumeRunnable)
@@ -185,7 +223,7 @@ class AlarmActivity : ComponentActivity() {
 
 
 @Composable
-fun AlarmScreen(message: String, meetingLink: String?, onDismiss: () -> Unit, onJoin: (String) -> Unit) {
+fun AlarmScreen(message: String, meetingLink: String?, location: String?, travelMinutes: Int?, isLongTrip: Boolean, onDismiss: () -> Unit, onJoin: (String) -> Unit, onCheckMap: (String) -> Unit) {
     val darkColorScheme = darkColorScheme(
         primary = Color.White,
         onPrimary = Color.Black,
@@ -220,7 +258,46 @@ fun AlarmScreen(message: String, meetingLink: String?, onDismiss: () -> Unit, on
                     textAlign = TextAlign.Center,
                     lineHeight = 56.sp
                 )
+                if (location != null) {
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Text(
+                        text = when {
+                            isLongTrip -> "Set 24hrs before to plan travel to $location"
+                            travelMinutes != null -> "${com.nen.alarmsynccalendar.formatTravelTime(travelMinutes)} to $location"
+                            else -> location
+                        },
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFFB0BEC5),
+                        textAlign = TextAlign.Center,
+                        lineHeight = 28.sp
+                    )
+                }
                 Spacer(modifier = Modifier.height(60.dp))
+                if (location != null && !isLongTrip && !com.nen.alarmsynccalendar.calendar.MeetingUtils.isRoomLikeLocation(location)) {
+                    Button(
+                        onClick = { onCheckMap(location) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(80.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF1565C0), // Material Blue for navigation
+                            contentColor = Color.White
+                        ),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Map, null, modifier = Modifier.size(32.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                text = "CHECK MAP",
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
                 if (!meetingLink.isNullOrBlank()) {
                     Button(
                         onClick = { onJoin(meetingLink) },

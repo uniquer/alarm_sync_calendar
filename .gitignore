@@ -24,3 +24,7 @@ MEMORY.md
 # Captures and logs
 captures/
 *.log
+
+# Environment variables
+.env
+

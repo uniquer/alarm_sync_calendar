@@ -93,7 +93,7 @@ class GoogleCalendarScanner(private val context: Context) {
                     meetingLink = MeetingUtils.extractMeetingLink(loc, desc)
                 }
 
-                events.add(EventInfo(id.hashCode().toLong(), id, recurringId, recurringId != null || item.has("recurrence"), null, item.optString("summary", "No Title"), parseIso(startStr), 0L, desc, org, email, meetingLink))
+                events.add(EventInfo(id.hashCode().toLong(), id, recurringId, recurringId != null || item.has("recurrence"), null, item.optString("summary", "No Title"), parseIso(startStr), 0L, desc, org, email, meetingLink, location = MeetingUtils.extractPhysicalLocation(loc)))
             }
         } else if (responseCode == 401 || responseCode == 403) {
             throw com.google.android.gms.auth.GoogleAuthException("Google Calendar Auth failed: HTTP $responseCode")
@@ -104,9 +104,16 @@ class GoogleCalendarScanner(private val context: Context) {
     }
 
     private fun parseIso(s: String): Long {
+        // Google returns dateTime with the event's own offset (e.g. "...T09:00:00-04:00"
+        // for a New York event). Honor it so cross-timezone events land at the right
+        // local time instead of being read as device-local clock time.
         return try {
-            val clean = if (s.contains("+")) s.substring(0, s.indexOf("+")) else if (s.endsWith("Z")) s.substring(0, s.length - 1) else s
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).parse(clean)?.time ?: 0L
-        } catch (e: Exception) { 0L }
+            java.time.OffsetDateTime.parse(s).toInstant().toEpochMilli()
+        } catch (e: Exception) {
+            try {
+                // No offset supplied — assume device-local time
+                java.time.LocalDateTime.parse(s).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+            } catch (e2: Exception) { 0L } // date-only (all-day) events stay excluded
+        }
     }
 }

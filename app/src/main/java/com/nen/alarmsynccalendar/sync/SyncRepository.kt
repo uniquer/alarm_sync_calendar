@@ -31,8 +31,103 @@ class SyncRepository(private val context: Context) {
     val alarmScheduler = AlarmScheduler(context)
     private val gson = Gson()
 
+    init {
+        // Ensure app-identity headers are set for restricted API keys,
+        // even when sync runs in the background before any Activity exists.
+        com.nen.alarmsynccalendar.maps.MapsService.init(context)
+    }
+
     /** Single source of truth for deriving an alarm ID from a calendar event ID. */
     fun alarmIdForEvent(googleEventId: String): Int = googleEventId.hashCode()
+
+    /**
+     * Single source of truth for when an event's alarm should fire.
+     * In-person events (physical location + known travel time): start − travel − prep buffer.
+     * Online events (meeting link, no location): start − configured lead time.
+     * Everything else (in-person without travel data, or no link and no location):
+     * start − prep buffer.
+     */
+    fun alarmTimeForEvent(event: EventInfo, settings: AppSettings): Long {
+        val isLongTrip = event.noDrivingRoute == true ||
+            (event.distanceKm != null && event.distanceKm > LONG_TRIP_THRESHOLD_KM)
+        return when {
+            event.location != null && isLongTrip ->
+                event.startTime - 24 * 60 * 60 * 1000L
+            event.location != null && event.travelTimeMinutes != null ->
+                event.startTime - (event.travelTimeMinutes + settings.offlineBufferMinutes) * 60_000L
+            event.location == null && event.meetingLink != null ->
+                event.startTime - settings.onlineLeadMinutes * 60_000L
+            else ->
+                event.startTime - settings.offlineBufferMinutes * 60_000L
+        }
+    }
+
+    /**
+     * Fills in driving distance/time for events that have a physical location.
+     * The Distance Matrix API is only called the first time an event is seen;
+     * afterwards the values are carried over from the cached events. Changing the
+     * start location invalidates the cache and recomputes everything.
+     */
+    suspend fun enrichWithTravelInfo(
+        events: List<EventInfo>,
+        cachedEvents: List<EventInfo>
+    ): List<EventInfo> {
+        val settings = AppSettings.load(context)
+        if (!settings.hasStartLocation) return events
+
+        val prefs = context.getSharedPreferences("alarms", Context.MODE_PRIVATE)
+        val originKey = "${settings.startLocationLat},${settings.startLocationLng}"
+        val cacheValid = prefs.getString("travel_origin_key", null) == originKey
+        prefs.edit().putString("travel_origin_key", originKey).apply()
+
+        // Addresses Google already said it can't geocode — never re-query them (each hit is billed)
+        val invalidAddresses = (prefs.getStringSet("invalid_locations", emptySet()) ?: emptySet()).toMutableSet()
+        var invalidAddressesChanged = false
+
+        // Results resolved during this run, so several new events at the same venue cost one call
+        val resolvedThisRun = mutableMapOf<String, com.nen.alarmsynccalendar.maps.TravelResult>()
+
+        val enriched = events.map { event ->
+            val loc = event.location ?: return@map event
+            if (loc in invalidAddresses) return@map event
+            // Room names / internal spaces are never geocodable — skip the billed call
+            if (com.nen.alarmsynccalendar.calendar.MeetingUtils.isRoomLikeLocation(loc)) return@map event
+            // Match by location only: distance from a fixed origin to the same address
+            // never changes, so recurring instances and other events at the same venue
+            // reuse the result instead of re-billing the API.
+            val cached = if (cacheValid) cachedEvents.find {
+                it.location == loc && (it.distanceKm != null || it.noDrivingRoute == true)
+            } else null
+            if (cached != null) {
+                event.copy(distanceKm = cached.distanceKm, travelTimeMinutes = cached.travelTimeMinutes, noDrivingRoute = cached.noDrivingRoute)
+            } else {
+                val result = resolvedThisRun.getOrPut(loc) {
+                    com.nen.alarmsynccalendar.maps.MapsService.travelInfo(
+                        settings.startLocationLat!!, settings.startLocationLng!!, loc
+                    )
+                }
+                when (result) {
+                    is com.nen.alarmsynccalendar.maps.TravelResult.Found ->
+                        event.copy(distanceKm = result.distanceKm, travelTimeMinutes = result.durationMinutes)
+                    is com.nen.alarmsynccalendar.maps.TravelResult.NoRoute ->
+                        event.copy(noDrivingRoute = true)
+                    is com.nen.alarmsynccalendar.maps.TravelResult.InvalidAddress -> {
+                        // Bad address — blacklist so it's never queried (billed) again
+                        invalidAddresses.add(loc)
+                        invalidAddressesChanged = true
+                        event
+                    }
+                    is com.nen.alarmsynccalendar.maps.TravelResult.Unavailable ->
+                        event // transient failure — retry on a later sync
+                }
+            }
+        }
+
+        if (invalidAddressesChanged) {
+            prefs.edit().putStringSet("invalid_locations", invalidAddresses.take(200).toSet()).apply()
+        }
+        return enriched
+    }
 
     /**
      * Refreshes an Outlook OAuth token using the stored refresh token.
@@ -148,6 +243,7 @@ class SyncRepository(private val context: Context) {
         var changed = false
         val finalAlarms = currentAlarms.toMutableList()
         val now = System.currentTimeMillis()
+        val settings = AppSettings.load(context)
 
         val iterator = finalAlarms.listIterator()
         while (iterator.hasNext()) {
@@ -170,14 +266,24 @@ class SyncRepository(private val context: Context) {
                     changed = true
                 }
             } else {
-                val targetTime = event.startTime - (5 * 60 * 1000)
+                val targetTime = alarmTimeForEvent(event, settings)
                 val isLinkChanged = event.meetingLink != alarm.meetingLink
-                if (targetTime != alarm.time || isLinkChanged) {
-                    alarmScheduler.scheduleAlarm(alarm.id, targetTime, event.title, event.meetingLink)
+                val isTravelChanged = event.location != alarm.location ||
+                    event.distanceKm != alarm.distanceKm ||
+                    event.travelTimeMinutes != alarm.travelTimeMinutes ||
+                    event.noDrivingRoute != alarm.noDrivingRoute ||
+                    event.startTime != alarm.eventStartTime
+                if (targetTime != alarm.time || isLinkChanged || isTravelChanged) {
+                    alarmScheduler.scheduleAlarm(alarm.id, targetTime, event.title, event.meetingLink, event.location, event.travelTimeMinutes, event.distanceKm, event.noDrivingRoute)
                     iterator.set(alarm.copy(
                         time = targetTime,
                         googleRecurrenceInfo = event.recurringEventId ?: if (event.isRecurring) "true" else null,
-                        meetingLink = event.meetingLink
+                        meetingLink = event.meetingLink,
+                        location = event.location,
+                        distanceKm = event.distanceKm,
+                        travelTimeMinutes = event.travelTimeMinutes,
+                        noDrivingRoute = event.noDrivingRoute,
+                        eventStartTime = event.startTime
                     ))
                     changed = true
                 }
@@ -189,14 +295,19 @@ class SyncRepository(private val context: Context) {
             val isExcluded = excluded.any { it.id == event.googleEventId || it.id == seriesId }
             if (!isExcluded && event.startTime > now && event.googleEventId != null) {
                 if (finalAlarms.none { it.googleEventId == event.googleEventId }) {
-                    val targetTime = event.startTime - (5 * 60 * 1000)
+                    val targetTime = alarmTimeForEvent(event, settings)
                     val id = alarmIdForEvent(event.googleEventId)
-                    alarmScheduler.scheduleAlarm(id, targetTime, event.title, event.meetingLink)
+                    alarmScheduler.scheduleAlarm(id, targetTime, event.title, event.meetingLink, event.location, event.travelTimeMinutes, event.distanceKm, event.noDrivingRoute)
                     finalAlarms.add(ScheduledAlarm(
                         id, targetTime, event.title,
                         googleEventId = event.googleEventId,
                         googleRecurrenceInfo = event.recurringEventId ?: if (event.isRecurring) "true" else null,
-                        meetingLink = event.meetingLink
+                        meetingLink = event.meetingLink,
+                        location = event.location,
+                        distanceKm = event.distanceKm,
+                        travelTimeMinutes = event.travelTimeMinutes,
+                        noDrivingRoute = event.noDrivingRoute,
+                        eventStartTime = event.startTime
                     ))
                     changed = true
                 }

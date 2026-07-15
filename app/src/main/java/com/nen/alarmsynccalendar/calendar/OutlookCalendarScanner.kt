@@ -70,7 +70,7 @@ class OutlookCalendarScanner(private val context: Context) {
                     meetingLink = MeetingUtils.extractMeetingLink(loc, desc)
                 }
 
-                events.add(EventInfo(id.hashCode().toLong(), id, seriesId, seriesId != null, null, item.optString("subject", "No Title"), startTs, 0L, desc, org, email, meetingLink))
+                events.add(EventInfo(id.hashCode().toLong(), id, seriesId, seriesId != null, null, item.optString("subject", "No Title"), startTs, 0L, desc, org, email, meetingLink, location = MeetingUtils.extractPhysicalLocation(loc)))
             }
         } else if (responseCode == 401 || responseCode == 403) {
             throw OutlookAuthException("Outlook Calendar Auth failed: HTTP $responseCode")

@@ -27,11 +27,15 @@ class AlarmReceiver : BroadcastReceiver() {
         val message = intent.getStringExtra("ALARM_MESSAGE") ?: "Meeting Alarm!"
         val id = intent.getIntExtra("ALARM_ID", 1)
         val meetingLink = intent.getStringExtra("ALARM_MEETING_LINK")
-        
+        val location = intent.getStringExtra("ALARM_LOCATION")
+        val travelMinutes = if (intent.hasExtra("ALARM_TRAVEL_MINUTES")) intent.getIntExtra("ALARM_TRAVEL_MINUTES", 0) else null
+        val distanceKm = if (intent.hasExtra("ALARM_DISTANCE_KM")) intent.getDoubleExtra("ALARM_DISTANCE_KM", 0.0) else null
+        val noRoute = intent.getBooleanExtra("ALARM_NO_ROUTE", false)
+
         // Handle Recurrence chaining BEFORE showing notification to ensure persistence
         handleRecurrence(context, id)
-        
-        showNotification(context, message, id, meetingLink)
+
+        showNotification(context, message, id, meetingLink, location, travelMinutes, distanceKm, noRoute)
     }
 
     private fun handleRecurrence(context: Context, alarmId: Int) {
@@ -78,7 +82,7 @@ class AlarmReceiver : BroadcastReceiver() {
                     prefs.edit().putString("alarm_list", gson.toJson(alarms)).apply()
                     
                     // Schedule the next instance
-                    AlarmScheduler(context).scheduleAlarm(nextAlarm.id, nextAlarm.time, nextAlarm.message, nextAlarm.meetingLink)
+                    AlarmScheduler(context).scheduleAlarm(nextAlarm.id, nextAlarm.time, nextAlarm.message, nextAlarm.meetingLink, nextAlarm.location, nextAlarm.travelTimeMinutes, nextAlarm.distanceKm, nextAlarm.noDrivingRoute)
                 }
             }
         } catch (e: Exception) {
@@ -86,7 +90,7 @@ class AlarmReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun showNotification(context: Context, message: String, id: Int, meetingLink: String?) {
+    private fun showNotification(context: Context, message: String, id: Int, meetingLink: String?, location: String?, travelMinutes: Int?, distanceKm: Double?, noRoute: Boolean) {
         val channelId = "alarm_channel"
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
  
@@ -107,6 +111,10 @@ class AlarmReceiver : BroadcastReceiver() {
             putExtra("ALARM_MESSAGE", message)
             putExtra("ALARM_ID", id)
             putExtra("ALARM_MEETING_LINK", meetingLink)
+            putExtra("ALARM_LOCATION", location)
+            if (travelMinutes != null) putExtra("ALARM_TRAVEL_MINUTES", travelMinutes)
+            if (distanceKm != null) putExtra("ALARM_DISTANCE_KM", distanceKm)
+            if (noRoute) putExtra("ALARM_NO_ROUTE", true)
         }
         
         val fullScreenPendingIntent = PendingIntent.getActivity(

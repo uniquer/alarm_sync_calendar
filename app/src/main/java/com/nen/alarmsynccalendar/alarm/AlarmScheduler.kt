@@ -12,7 +12,14 @@ import android.widget.Toast
 class AlarmScheduler(private val context: Context) {
     private val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
-    fun scheduleAlarm(id: Int, timeInMillis: Long, message: String, meetingLink: String? = null) {
+    fun scheduleAlarm(id: Int, timeInMillis: Long, message: String, meetingLink: String? = null, location: String? = null, travelTimeMinutes: Int? = null, distanceKm: Double? = null, noDrivingRoute: Boolean? = null) {
+        // A past target time (e.g. travel time + buffer pushed the alarm before "now")
+        // would make setAlarmClock fire immediately mid-sync. Skip the system alarm;
+        // the entry still appears under Past alarms with its links and travel info.
+        if (timeInMillis <= System.currentTimeMillis()) {
+            Log.d("AlarmScheduler", "Skipping alarm $id: target time $timeInMillis is in the past")
+            return
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (!alarmManager.canScheduleExactAlarms()) {
                 try {
@@ -35,6 +42,10 @@ class AlarmScheduler(private val context: Context) {
             putExtra("ALARM_MESSAGE", message)
             putExtra("ALARM_ID", id)
             putExtra("ALARM_MEETING_LINK", meetingLink)
+            putExtra("ALARM_LOCATION", location)
+            if (travelTimeMinutes != null) putExtra("ALARM_TRAVEL_MINUTES", travelTimeMinutes)
+            if (distanceKm != null) putExtra("ALARM_DISTANCE_KM", distanceKm)
+            if (noDrivingRoute == true) putExtra("ALARM_NO_ROUTE", true)
         }
 
         val pendingIntent = PendingIntent.getBroadcast(

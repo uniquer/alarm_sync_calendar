@@ -161,9 +161,12 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
             notificationManager.cancel(200)
         }
 
-        val allEvents = results
-            .flatMap { it.events }
-            .distinctBy { "${it.title}|${it.startTime}" }
+        val allEvents = repo.enrichWithTravelInfo(
+            results
+                .flatMap { it.events }
+                .distinctBy { "${it.title}|${it.startTime}" },
+            cachedEvents
+        )
 
         val syncedEmails = results
             .filter { it.status == AccountSyncStatus.OK }

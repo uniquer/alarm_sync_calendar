@@ -9,6 +9,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -41,13 +44,26 @@ fun MainScreen(
     onGoogleSignIn: () -> Unit, onOutlookSignIn: () -> Unit, onDisconnectAccount: (String) -> Unit, 
     onTogglePrimary: (String, Boolean) -> Unit, onManualSync: () -> Unit, onSave: () -> Unit,
     excludedEvents: MutableList<ExcludedEvent>, onRestoreExcluded: (ExcludedEvent) -> Unit, onSaveExcluded: () -> Unit,
-    onToggleAlarm: (EventInfo, Boolean) -> Unit, isSyncing: Boolean
+    onToggleAlarm: (EventInfo, Boolean) -> Unit, isSyncing: Boolean,
+    appSettings: AppSettings, onUpdateSettings: (AppSettings) -> Unit,
+    showLocationPrompt: Boolean, onDismissLocationPrompt: () -> Unit
 ) {
     var selectedTab by remember { mutableStateOf(0) }
     var showEditDialog by remember { mutableStateOf(false) }
     var alarmToEdit by remember { mutableStateOf<ScheduledAlarm?>(null) }
     var showAboutDialog by remember { mutableStateOf(false) }
     var showAddAccountChoice by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // Ticker for Google Maps API errors (place search + distance lookups) while the app is active
+    LaunchedEffect(Unit) {
+        com.nen.alarmsynccalendar.maps.MapsService.lastError.collect { error ->
+            if (error != null) {
+                com.nen.alarmsynccalendar.maps.MapsService.lastError.value = null
+                snackbarHostState.showSnackbar(error, withDismissAction = true)
+            }
+        }
+    }
 
     if (showAboutDialog) AboutDialog({ showAboutDialog = false }, { (context as MainActivity).openSettings() }, { (context as MainActivity).openOEMSettings() })
     if (showEditDialog) AlarmEditDialog(alarmToEdit, { showEditDialog = false; alarmToEdit = null }, { t, tm, rt, rd ->
@@ -78,6 +94,22 @@ fun MainScreen(
         }
     })
     
+    if (showLocationPrompt) {
+        AlertDialog(
+            onDismissRequest = onDismissLocationPrompt,
+            title = { Text("Set Starting Location?") },
+            text = { Text("You haven't set a starting location yet. Setting it lets alarms for in-person events fire early enough based on the travel time from your location to the event's location.") },
+            confirmButton = {
+                Button(onClick = { onDismissLocationPrompt(); selectedTab = 2 }) {
+                    Icon(Icons.Default.Place, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Set Location")
+                }
+            },
+            dismissButton = { TextButton(onClick = onDismissLocationPrompt) { Text("Cancel") } }
+        )
+    }
+
     if (showAddAccountChoice) {
         AlertDialog(onDismissRequest = { showAddAccountChoice = false }, title = { Text("Add Account") },
             text = { Column {
@@ -89,10 +121,12 @@ fun MainScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = { CenterAlignedTopAppBar(title = { Text("CalAlarm Sync", style = MaterialTheme.typography.headlineMedium) }, actions = { IconButton(onClick = { showAboutDialog = true }) { Icon(Icons.Default.Info, null) } }, colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) },
         bottomBar = { NavigationBar {
             NavigationBarItem(icon = { Icon(Icons.Default.Alarm, null) }, label = { Text("Alarms") }, selected = selectedTab == 0, onClick = { selectedTab = 0 })
             NavigationBarItem(icon = { Icon(Icons.Default.CalendarToday, null) }, label = { Text("Calendars") }, selected = selectedTab == 1, onClick = { selectedTab = 1 })
+            NavigationBarItem(icon = { Icon(Icons.Default.Settings, null) }, label = { Text("Settings") }, selected = selectedTab == 2, onClick = { selectedTab = 2 })
         }},
         floatingActionButton = { if (selectedTab == 0 || selectedTab == 1) FloatingActionButton(onClick = { if (selectedTab == 0) showEditDialog = true else showAddAccountChoice = true }) { Icon(Icons.Default.Add, null) } }
     ) { p ->
@@ -108,6 +142,7 @@ fun MainScreen(
                     }
                 }, onEdit = { alarmToEdit = it; showEditDialog = true }, excludedEvents = excludedEvents, onRestoreExcluded = onRestoreExcluded)
                 1 -> CalendarsTabScreen(cloudEvents, connectedAccounts, lastSyncTime, onDisconnectAccount, onTogglePrimary, onManualSync, alarmScheduler, activeAlarms, onSave, context, excludedEvents, onToggleAlarm, isSyncing)
+                2 -> SettingsTabScreen(appSettings, onUpdateSettings)
             }
         }
     }
@@ -163,7 +198,7 @@ fun AlarmsTabScreen(activeAlarms: List<ScheduledAlarm>, onDelete: (ScheduledAlar
 
 @Composable
 fun CalendarsTabScreen(cloudEvents: List<EventInfo>, accounts: List<ConnectedCloudAccount>, lastSyncTime: Long, onDisconnectAccount: (String) -> Unit, onTogglePrimary: (String, Boolean) -> Unit, onManualSync: () -> Unit, alarmScheduler: AlarmScheduler, activeAlarms: MutableList<ScheduledAlarm>, onSave: () -> Unit, context: Context, excludedEvents: List<ExcludedEvent>, onToggleAlarm: (EventInfo, Boolean) -> Unit, isSyncing: Boolean) {
-    val sdf = SimpleDateFormat("HH:mm", Locale.getDefault()); val dateSdf = SimpleDateFormat("MMM dd", Locale.getDefault())
+    val sdf = SimpleDateFormat("HH:mm", Locale.getDefault()); val dateSdf = SimpleDateFormat("EEE, MMM dd", Locale.getDefault())
     val syncSdf = SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault())
     var accountToDelete by remember { mutableStateOf<String?>(null) }
 
@@ -462,6 +497,7 @@ fun CalendarsTabScreen(cloudEvents: List<EventInfo>, accounts: List<ConnectedClo
                                                     }
                                                 }
                                                 Text("${dateSdf.format(Date(event.startTime))} ${sdf.format(Date(event.startTime))}", style = MaterialTheme.typography.labelSmall)
+                                                TravelInfoRow(event.location, event.distanceKm, event.travelTimeMinutes, event.noDrivingRoute)
                                                 if (!event.meetingLink.isNullOrBlank()) {
                                                     Spacer(Modifier.height(8.dp))
                                                     Button(
@@ -508,7 +544,7 @@ fun CalendarsTabScreen(cloudEvents: List<EventInfo>, accounts: List<ConnectedClo
 
 @Composable
 fun AlarmCard(alarm: ScheduledAlarm, onEdit: (ScheduledAlarm) -> Unit, onDelete: (ScheduledAlarm) -> Unit, isPast: Boolean = false) {
-    val sdf = SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault())
+    val sdf = SimpleDateFormat("EEE, MMM dd, HH:mm", Locale.getDefault())
     val context = androidx.compose.ui.platform.LocalContext.current
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), colors = if (isPast) CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)) else CardDefaults.cardColors()) {
         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -529,7 +565,12 @@ fun AlarmCard(alarm: ScheduledAlarm, onEdit: (ScheduledAlarm) -> Unit, onDelete:
                     )
                     Text(text = alarm.message, style = MaterialTheme.typography.titleMedium, textDecoration = if (isPast) androidx.compose.ui.text.style.TextDecoration.LineThrough else null, modifier = Modifier.weight(1f), maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 }
-                Text(text = sdf.format(Date(alarm.time)), style = MaterialTheme.typography.bodySmall)
+                val leadMinutes = alarm.eventStartTime?.let { ((it - alarm.time) / 60_000L).toInt() }?.takeIf { it > 0 }
+                Text(
+                    text = sdf.format(Date(alarm.time)) + (leadMinutes?.let { " (${formatTravelTime(it)} before event)" } ?: ""),
+                    style = MaterialTheme.typography.bodySmall
+                )
+                TravelInfoRow(alarm.location, alarm.distanceKm, alarm.travelTimeMinutes, alarm.noDrivingRoute)
                 if (!alarm.meetingLink.isNullOrBlank()) {
                     Spacer(Modifier.height(8.dp))
                     Button(
@@ -681,6 +722,306 @@ fun AlarmEditDialog(existingAlarm: ScheduledAlarm?, onDismiss: () -> Unit, onCon
         Spacer(Modifier.height(16.dp)); FlowRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf(RecurrenceType.NONE, RecurrenceType.DAILY, RecurrenceType.WEEKLY, RecurrenceType.MONTHLY).forEach { type -> FilterChip(selected = recurrenceType == type, onClick = { recurrenceType = type }, label = { Text(type.name) }) } }
         if (recurrenceType == RecurrenceType.WEEKLY) { Spacer(Modifier.height(8.dp)); FlowRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) { listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat").forEachIndexed { i, n -> AssistChip(onClick = { calendar.set(Calendar.DAY_OF_WEEK, i+1); selectedDate = calendar.time }, label = { Text(n) }, colors = if (calendar.get(Calendar.DAY_OF_WEEK) == i+1) AssistChipDefaults.assistChipColors(containerColor = MaterialTheme.colorScheme.primaryContainer) else AssistChipDefaults.assistChipColors()) } } }
     }}}, confirmButton = { Button(onClick = { val rd = if(recurrenceType == RecurrenceType.WEEKLY) calendar.get(Calendar.DAY_OF_WEEK) else if(recurrenceType == RecurrenceType.MONTHLY) calendar.get(Calendar.DAY_OF_MONTH) else null; onConfirm(title.ifBlank { "Manual" }, calendar.timeInMillis, recurrenceType, rd) }) { Text("Save") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
+}
+
+/** Formats travel minutes for display, e.g. 100 -> "1hr 40mins", 30 -> "30mins". */
+fun formatTravelTime(minutes: Int): String {
+    val h = minutes / 60
+    val m = minutes % 60
+    return when {
+        h > 0 && m > 0 -> "${h}hr ${m}mins"
+        h > 0 -> "${h}hr"
+        else -> "${m}mins"
+    }
+}
+
+/** Location + driving distance/time line shown on in-person events and their alarms. */
+@Composable
+fun TravelInfoRow(location: String?, distanceKm: Double?, travelTimeMinutes: Int?, noDrivingRoute: Boolean? = null) {
+    // Re-filter here too: alarms saved before the placeholder filter existed may
+    // still carry values like "online" — never show those or the Map button.
+    val physicalLocation = com.nen.alarmsynccalendar.calendar.MeetingUtils.extractPhysicalLocation(location) ?: return
+    val context = androidx.compose.ui.platform.LocalContext.current
+    Spacer(Modifier.height(4.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Default.Place, contentDescription = "Location", tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(14.dp))
+        Spacer(Modifier.width(4.dp))
+        Text(physicalLocation, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+    }
+    val isRoomLike = com.nen.alarmsynccalendar.calendar.MeetingUtils.isRoomLikeLocation(physicalLocation)
+    if (isRoomLike) {
+        Text(
+            "Travel check skipped — not a street address",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline
+        )
+        return
+    }
+    val isLongTrip = noDrivingRoute == true || (distanceKm != null && distanceKm > LONG_TRIP_THRESHOLD_KM)
+    if (isLongTrip || (distanceKm != null && travelTimeMinutes != null)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Default.DirectionsCar, contentDescription = "Travel", tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(4.dp))
+            Text(
+                when {
+                    isLongTrip && distanceKm != null ->
+                        String.format(Locale.getDefault(), "%.0f km • Alarm set 24hrs before to plan travel", distanceKm)
+                    isLongTrip ->
+                        "Long trip • Alarm set 24hrs before to plan travel"
+                    else ->
+                        String.format(Locale.getDefault(), "%.1f km • Travel Time: %s", distanceKm, formatTravelTime(travelTimeMinutes!!))
+                },
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = if (isLongTrip) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.secondary
+            )
+        }
+    }
+    if (isLongTrip) return
+    Spacer(Modifier.height(8.dp))
+    Button(
+        onClick = {
+            val settings = AppSettings.load(context)
+            val dest = java.net.URLEncoder.encode(physicalLocation, "UTF-8")
+            // Omitting origin makes Google Maps default to the user's current position.
+            val origin = if (settings.hasStartLocation) "&origin=${settings.startLocationLat},${settings.startLocationLng}" else ""
+            val url = "https://www.google.com/maps/dir/?api=1$origin&destination=$dest&travelmode=driving"
+            try {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                })
+            } catch (e: Exception) {
+                Toast.makeText(context, "Could not open Maps", Toast.LENGTH_SHORT).show()
+            }
+        },
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+        modifier = Modifier.height(32.dp),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+    ) {
+        Icon(
+            imageVector = Icons.Default.Map,
+            contentDescription = "Open in Maps",
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = "Map",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettingsTabScreen(settings: AppSettings, onUpdateSettings: (AppSettings) -> Unit) {
+    var showClearConfirm by remember { mutableStateOf(false) }
+    var showLocationSearch by remember { mutableStateOf(false) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    if (showLocationSearch) {
+        LocationSearchDialog(
+            onDismiss = { showLocationSearch = false },
+            onSelected = { details ->
+                showLocationSearch = false
+                val isChange = settings.hasStartLocation
+                onUpdateSettings(settings.copy(
+                    startLocationName = details.name,
+                    startLocationLat = details.lat,
+                    startLocationLng = details.lng
+                ))
+                Toast.makeText(
+                    context,
+                    if (isChange) "Starting location updated. Your alarms will be adjusted based on the new travel times."
+                    else "Starting location set. Alarms for in-person events will now include travel time.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        )
+    }
+
+    if (showClearConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirm = false },
+            title = { Text("Clear Starting Location?") },
+            text = { Text("Without a starting location, travel time can't be calculated. Alarms for in-person events will be rescheduled to fire at the prep buffer before the event, without any travel time.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showClearConfirm = false
+                        onUpdateSettings(settings.copy(startLocationName = null, startLocationLat = null, startLocationLng = null))
+                        Toast.makeText(context, "Starting location cleared. Alarms rescheduled without travel time.", Toast.LENGTH_LONG).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) { Text("Clear") }
+            },
+            dismissButton = { TextButton(onClick = { showClearConfirm = false }) { Text("Cancel") } }
+        )
+    }
+
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState())) {
+        Text("Settings", style = MaterialTheme.typography.headlineSmall)
+        Spacer(Modifier.height(4.dp))
+        Text("Configure when alarms fire before your calendar events.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+        Spacer(Modifier.height(16.dp))
+
+        Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.VideoCall, null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Online Meetings", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("Alarm lead time for events that only have a meeting link.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(12.dp))
+                Text("Lead time", style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(5, 10, 15).forEach { m ->
+                        FilterChip(
+                            selected = settings.onlineLeadMinutes == m,
+                            onClick = { onUpdateSettings(settings.copy(onlineLeadMinutes = m)) },
+                            label = { Text("$m min") }
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+
+        Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Place, null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(8.dp))
+                    Text("In-Person Meetings", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "For events with a physical location, the alarm fires at:\nevent start − driving time − prep buffer.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(12.dp))
+                Text("Prep buffer", style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(5, 10, 15).forEach { m ->
+                        FilterChip(
+                            selected = settings.offlineBufferMinutes == m,
+                            onClick = { onUpdateSettings(settings.copy(offlineBufferMinutes = m)) },
+                            label = { Text("$m min") }
+                        )
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+                Divider()
+                Spacer(Modifier.height(16.dp))
+                Text("Starting Location", style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.height(4.dp))
+                if (settings.hasStartLocation) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.MyLocation, null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(settings.startLocationName ?: "Location set", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { showLocationSearch = true }) { Text("Change") }
+                        TextButton(onClick = { showClearConfirm = true }) { Text("Clear", color = MaterialTheme.colorScheme.error) }
+                    }
+                } else {
+                    Text(
+                        "Providing your location (home or office) helps determine the travel time offset to ring your alarms early enough for in-person events.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Button(onClick = { showLocationSearch = true }) {
+                        Icon(Icons.Default.Search, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Set Location")
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(80.dp))
+    }
+}
+
+@Composable
+fun LocationSearchDialog(onDismiss: () -> Unit, onSelected: (com.nen.alarmsynccalendar.maps.PlaceDetails) -> Unit) {
+    var query by remember { mutableStateOf("") }
+    var results by remember { mutableStateOf<List<com.nen.alarmsynccalendar.maps.PlaceSuggestion>>(emptyList()) }
+    var isSearching by remember { mutableStateOf(false) }
+    var isResolving by remember { mutableStateOf(false) }
+    var searchError by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(query) {
+        searchError = null
+        if (query.length < 3) { results = emptyList(); return@LaunchedEffect }
+        kotlinx.coroutines.delay(400) // debounce keystrokes before hitting the Places API
+        isSearching = true
+        val result = com.nen.alarmsynccalendar.maps.MapsService.autocomplete(query)
+        isSearching = false
+        results = result.suggestions
+        searchError = result.error
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Starting Location") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("Search address or place") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    isError = searchError != null,
+                    trailingIcon = {
+                        if (isSearching || isResolving) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        else Icon(Icons.Default.Search, null)
+                    }
+                )
+                Spacer(Modifier.height(8.dp))
+                if (searchError != null) {
+                    Text(searchError!!, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                } else if (results.isEmpty() && query.length >= 3 && !isSearching) {
+                    Text("No results found.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                LazyColumn(modifier = Modifier.heightIn(max = 280.dp)) {
+                    items(results) { suggestion ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = !isResolving) {
+                                    scope.launch {
+                                        isResolving = true
+                                        val result = com.nen.alarmsynccalendar.maps.MapsService.placeDetails(suggestion.placeId)
+                                        isResolving = false
+                                        val details = result.details
+                                        if (details != null) onSelected(details)
+                                        else searchError = result.error ?: "Could not fetch location details. Try again."
+                                    }
+                                }
+                                .padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Place, null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(suggestion.description, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 @Composable

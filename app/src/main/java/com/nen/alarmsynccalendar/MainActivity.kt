@@ -109,6 +109,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         authService = AuthorizationService(this)
+        com.nen.alarmsynccalendar.maps.MapsService.init(this)
 
         val syncPrefs = getSharedPreferences("sync_logs", Context.MODE_PRIVATE)
         if (!syncPrefs.contains("first_run_time")) {
@@ -149,7 +150,11 @@ class MainActivity : ComponentActivity() {
                             },
                             onSaveExcluded = { viewModel.saveExcluded() },
                             onToggleAlarm = { event, enabled -> viewModel.toggleEventAlarm(event, enabled) },
-                            isSyncing = viewModel.isSyncing
+                            isSyncing = viewModel.isSyncing,
+                            appSettings = viewModel.appSettings,
+                            onUpdateSettings = { viewModel.updateSettings(it) },
+                            showLocationPrompt = viewModel.showLocationPrompt,
+                            onDismissLocationPrompt = { viewModel.showLocationPrompt = false }
                         )
 
                         if (viewModel.isSyncing && viewModel.cloudEvents.isEmpty()) {
