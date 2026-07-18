@@ -46,14 +46,25 @@ fun MainScreen(
     excludedEvents: MutableList<ExcludedEvent>, onRestoreExcluded: (ExcludedEvent) -> Unit, onSaveExcluded: () -> Unit,
     onToggleAlarm: (EventInfo, Boolean) -> Unit, isSyncing: Boolean,
     appSettings: AppSettings, onUpdateSettings: (AppSettings) -> Unit,
-    showLocationPrompt: Boolean, onDismissLocationPrompt: () -> Unit
+    showLocationPrompt: Boolean, onDismissLocationPrompt: () -> Unit,
+    openTabState: MutableState<String?>
 ) {
     var selectedTab by remember { mutableStateOf(0) }
+    var alarmsSubTab by remember { mutableStateOf(0) }
     var showEditDialog by remember { mutableStateOf(false) }
     var alarmToEdit by remember { mutableStateOf<ScheduledAlarm?>(null) }
     var showAboutDialog by remember { mutableStateOf(false) }
     var showAddAccountChoice by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(openTabState.value) {
+        if (openTabState.value == "past") {
+            selectedTab = 0
+            alarmsSubTab = 1
+            openTabState.value = null
+            (context as? MainActivity)?.intent?.removeExtra("OPEN_TAB")
+        }
+    }
 
     // Ticker for Google Maps API errors (place search + distance lookups) while the app is active
     LaunchedEffect(Unit) {
@@ -65,7 +76,12 @@ fun MainScreen(
         }
     }
 
-    if (showAboutDialog) AboutDialog({ showAboutDialog = false }, { (context as MainActivity).openSettings() }, { (context as MainActivity).openOEMSettings() })
+    if (showAboutDialog) AboutDialog(
+        onDismiss = { showAboutDialog = false },
+        onOpenSettings = { (context as MainActivity).openSettings() },
+        onOpenOEM = { (context as MainActivity).openOEMSettings() },
+        onOpenMIUIPermissions = { (context as MainActivity).openMIUIPermissions() }
+    )
     if (showEditDialog) AlarmEditDialog(alarmToEdit, { showEditDialog = false; alarmToEdit = null }, { t, tm, rt, rd ->
         var f = tm; if (f < System.currentTimeMillis() && rt != RecurrenceType.NONE) f = RecurrenceUtils.calculateNextOccurrence(f, rt, rd)
         if (f >= System.currentTimeMillis()) {
@@ -132,15 +148,27 @@ fun MainScreen(
     ) { p ->
         Box(modifier = Modifier.padding(p).fillMaxSize()) {
             when (selectedTab) {
-                0 -> AlarmsTabScreen(activeAlarms, onDelete = { 
-                    alarmScheduler.cancelAlarm(it.id); activeAlarms.remove(it); onSave()
-                    if (it.googleEventId != null) {
-                        val isSeries = it.googleRecurrenceInfo != null
-                        val rootId = if (it.googleRecurrenceInfo != "true" && it.googleRecurrenceInfo != null) it.googleRecurrenceInfo else if (isSeries) it.googleEventId.split("_")[0] else it.googleEventId
-                        excludedEvents.add(ExcludedEvent(rootId, it.message, isSeries, System.currentTimeMillis() + (90L * 24 * 60 * 60 * 1000)))
-                        onSaveExcluded()
-                    }
-                }, onEdit = { alarmToEdit = it; showEditDialog = true }, excludedEvents = excludedEvents, onRestoreExcluded = onRestoreExcluded)
+                0 -> {
+                    AlarmsTabScreen(
+                        activeAlarms = activeAlarms,
+                        onDelete = { 
+                            alarmScheduler.cancelAlarm(it.id); activeAlarms.remove(it); onSave()
+                            if (it.googleEventId != null) {
+                                val isSeries = it.googleRecurrenceInfo != null
+                                val rootId = if (it.googleRecurrenceInfo != "true" && it.googleRecurrenceInfo != null) it.googleRecurrenceInfo else if (isSeries) it.googleEventId.split("_")[0] else it.googleEventId
+                                excludedEvents.add(ExcludedEvent(rootId, it.message, isSeries, System.currentTimeMillis() + (90L * 24 * 60 * 60 * 1000)))
+                                onSaveExcluded()
+                            }
+                        },
+                        onEdit = { alarmToEdit = it; showEditDialog = true },
+                        excludedEvents = excludedEvents,
+                        onRestoreExcluded = onRestoreExcluded,
+                        alarmScheduler = alarmScheduler,
+                        onSave = onSave,
+                        subTab = alarmsSubTab,
+                        onSubTabChange = { alarmsSubTab = it }
+                    )
+                }
                 1 -> CalendarsTabScreen(cloudEvents, connectedAccounts, lastSyncTime, onDisconnectAccount, onTogglePrimary, onManualSync, alarmScheduler, activeAlarms, onSave, context, excludedEvents, onToggleAlarm, isSyncing)
                 2 -> SettingsTabScreen(appSettings, onUpdateSettings)
             }
@@ -149,12 +177,46 @@ fun MainScreen(
 }
 
 @Composable
-fun AlarmsTabScreen(activeAlarms: List<ScheduledAlarm>, onDelete: (ScheduledAlarm) -> Unit, onEdit: (ScheduledAlarm) -> Unit, excludedEvents: List<ExcludedEvent>, onRestoreExcluded: (ExcludedEvent) -> Unit) {
-    var subTab by remember { mutableStateOf(0) }
+fun AlarmsTabScreen(
+    activeAlarms: MutableList<ScheduledAlarm>,
+    onDelete: (ScheduledAlarm) -> Unit,
+    onEdit: (ScheduledAlarm) -> Unit,
+    excludedEvents: List<ExcludedEvent>,
+    onRestoreExcluded: (ExcludedEvent) -> Unit,
+    alarmScheduler: AlarmScheduler,
+    onSave: () -> Unit,
+    subTab: Int,
+    onSubTabChange: (Int) -> Unit
+) {
     var alarmToDelete by remember { mutableStateOf<ScheduledAlarm?>(null) }
-    val currentTime = System.currentTimeMillis()
+    
+    // Ticker to refresh screen every second for the countdown timer and layout movements
+    var timeTicker by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(1000L)
+            timeTicker = System.currentTimeMillis()
+        }
+    }
+    val currentTime = timeTicker
+    
     val upcoming = activeAlarms.filter { it.time > currentTime }.sortedBy { it.time }
     val past = activeAlarms.filter { it.time <= currentTime }.sortedByDescending { it.time }
+
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val syncPrefs = remember { context.getSharedPreferences("sync_logs", Context.MODE_PRIVATE) }
+    var testAlarmDismissed by remember { mutableStateOf(syncPrefs.getBoolean("test_alarm_dismissed", false)) }
+    
+    var showTestAlarmDialog by remember { mutableStateOf(false) }
+    var showFeedbackDialog by remember { mutableStateOf(false) }
+    
+    // Auto-pop feedback dialog when a test alarm moves into the past
+    LaunchedEffect(currentTime, upcoming, past) {
+        val hasPastTest = past.any { it.message == "Test alarm to show on lock screen" }
+        if (hasPastTest && !testAlarmDismissed && !showFeedbackDialog) {
+            showFeedbackDialog = true
+        }
+    }
 
     if (alarmToDelete != null) {
         AlertDialog(
@@ -166,30 +228,110 @@ fun AlarmsTabScreen(activeAlarms: List<ScheduledAlarm>, onDelete: (ScheduledAlar
         )
     }
 
+    if (showTestAlarmDialog) {
+        AlertDialog(
+            onDismissRequest = { showTestAlarmDialog = false },
+            title = { Text("Prepare to Test") },
+            text = { Text("A test alarm will be created 30 seconds from now. Please lock your device's screen and wait to see if the alarm ringer launches properly on top of the lock screen.") },
+            confirmButton = {
+                Button(onClick = {
+                    showTestAlarmDialog = false
+                    val triggerTime = System.currentTimeMillis() + 30_000L
+                    val testAlarmId = 8888
+                    alarmScheduler.scheduleAlarm(
+                        id = testAlarmId,
+                        timeInMillis = triggerTime,
+                        message = "Test alarm to show on lock screen"
+                    )
+                    val newAlarm = ScheduledAlarm(
+                        id = testAlarmId,
+                        time = triggerTime,
+                        message = "Test alarm to show on lock screen"
+                    )
+                    activeAlarms.add(newAlarm)
+                    onSave()
+                }) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTestAlarmDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showFeedbackDialog) {
+        AlertDialog(
+            onDismissRequest = {}, // Force user action
+            title = { Text("Test Alarm Verification") },
+            text = { Text("Did you see the full-screen alarm ringer overlay properly? If not, check if 'Auto start' and 'Draw over other Apps' permissions are set in Settings.") },
+            confirmButton = {
+                Button(onClick = {
+                    showFeedbackDialog = false
+                    testAlarmDismissed = true
+                    syncPrefs.edit().putBoolean("test_alarm_dismissed", true).apply()
+                    // Cleanup
+                    alarmScheduler.cancelAlarm(8888)
+                    onSave()
+                }) {
+                    Text("OK")
+                }
+            }
+        )
+    }
+
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         TabRow(selectedTabIndex = subTab) {
-            Tab(selected = subTab == 0, onClick = { subTab = 0 }, text = { Text("Upcoming") })
-            Tab(selected = subTab == 1, onClick = { subTab = 1 }, text = { Text("Past") })
+            Tab(selected = subTab == 0, onClick = { onSubTabChange(0) }, text = { Text("Upcoming") })
+            Tab(selected = subTab == 1, onClick = { onSubTabChange(1) }, text = { Text("Past") })
         }
         Spacer(Modifier.height(16.dp))
         
-        if (subTab == 0 && upcoming.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
-                    Icon(Icons.Default.Alarm, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.outline)
-                    Spacer(Modifier.height(16.dp))
-                    Text("No upcoming alarms", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(8.dp))
-                    Text("Tap + to create a local alarm, or connect a calendar from the Calendars tab.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        if (subTab == 0) {
+            // Show onboarding test alarm card for clean installs with no alarms
+            if (!testAlarmDismissed && activeAlarms.isEmpty()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("Verify Lock Screen Alarms", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.height(4.dp))
+                        Text("Aggressive background managers on custom Android skins can block alarms. Run a 30-second test alarm to verify your ringer works when the screen is locked.", style = MaterialTheme.typography.bodySmall)
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = { showTestAlarmDialog = true }) {
+                            Text("Run Test Alarm")
+                        }
+                    }
                 }
             }
-        } else {
-            LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 80.dp)) {
-                if (subTab == 0) {
+            
+            if (upcoming.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
+                        Icon(Icons.Default.Alarm, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.outline)
+                        Spacer(Modifier.height(16.dp))
+                        Text("No upcoming alarms", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(8.dp))
+                        Text("Tap + to create a local alarm, or connect a calendar from the Calendars tab.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    }
+                }
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 80.dp)) {
                     items(upcoming) { AlarmCard(it, onEdit, { alarm -> alarmToDelete = alarm }) }
-                } else if (subTab == 1) {
-                    if (past.isEmpty()) item { Text("No past alarms.", modifier = Modifier.padding(top = 16.dp)) }
-                    else items(past) { AlarmCard(it, onEdit, { alarm -> alarmToDelete = alarm }, isPast = true) }
+                }
+            }
+        } else if (subTab == 1) {
+            if (past.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("No past alarms.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.outline)
+                }
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 80.dp)) {
+                    items(past) { AlarmCard(it, onEdit, { alarm -> alarmToDelete = alarm }, isPast = true) }
                 }
             }
         }
@@ -546,6 +688,17 @@ fun CalendarsTabScreen(cloudEvents: List<EventInfo>, accounts: List<ConnectedClo
 fun AlarmCard(alarm: ScheduledAlarm, onEdit: (ScheduledAlarm) -> Unit, onDelete: (ScheduledAlarm) -> Unit, isPast: Boolean = false) {
     val sdf = SimpleDateFormat("EEE, MMM dd, HH:mm", Locale.getDefault())
     val context = androidx.compose.ui.platform.LocalContext.current
+    
+    var secondsLeft by remember(alarm.time) { mutableStateOf(((alarm.time - System.currentTimeMillis()) / 1000L).coerceAtLeast(0L)) }
+    if (alarm.message == "Test alarm to show on lock screen" && secondsLeft > 0L) {
+        LaunchedEffect(alarm.time) {
+            while (secondsLeft > 0L) {
+                kotlinx.coroutines.delay(200L)
+                secondsLeft = ((alarm.time - System.currentTimeMillis()) / 1000L).coerceAtLeast(0L)
+            }
+        }
+    }
+
     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), colors = if (isPast) CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)) else CardDefaults.cardColors()) {
         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(modifier = Modifier.size(48.dp)) {
@@ -565,11 +718,21 @@ fun AlarmCard(alarm: ScheduledAlarm, onEdit: (ScheduledAlarm) -> Unit, onDelete:
                     )
                     Text(text = alarm.message, style = MaterialTheme.typography.titleMedium, textDecoration = if (isPast) androidx.compose.ui.text.style.TextDecoration.LineThrough else null, modifier = Modifier.weight(1f), maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 }
-                val leadMinutes = alarm.eventStartTime?.let { ((it - alarm.time) / 60_000L).toInt() }?.takeIf { it > 0 }
-                Text(
-                    text = sdf.format(Date(alarm.time)) + (leadMinutes?.let { " (${formatTravelTime(it)} before event)" } ?: ""),
-                    style = MaterialTheme.typography.bodySmall
-                )
+                if (alarm.message == "Test alarm to show on lock screen" && secondsLeft > 0L) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "Triggering in $secondsLeft seconds. Please lock your screen!",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.Bold
+                    )
+                } else {
+                    val leadMinutes = alarm.eventStartTime?.let { ((it - alarm.time) / 60_000L).toInt() }?.takeIf { it > 0 }
+                    Text(
+                        text = sdf.format(Date(alarm.time)) + (leadMinutes?.let { " (${formatTravelTime(it)} before event)" } ?: ""),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
                 TravelInfoRow(alarm.location, alarm.distanceKm, alarm.travelTimeMinutes, alarm.noDrivingRoute)
                 if (!alarm.meetingLink.isNullOrBlank()) {
                     Spacer(Modifier.height(8.dp))
@@ -630,9 +793,10 @@ fun AlarmCard(alarm: ScheduledAlarm, onEdit: (ScheduledAlarm) -> Unit, onDelete:
 }
 
 @Composable
-fun AboutDialog(onDismiss: () -> Unit, onOpenSettings: () -> Unit, onOpenOEM: () -> Unit) {
+fun AboutDialog(onDismiss: () -> Unit, onOpenSettings: () -> Unit, onOpenOEM: () -> Unit, onOpenMIUIPermissions: () -> Unit) {
     val m = android.os.Build.MANUFACTURER.lowercase()
-    val isKnown = m.contains("xiaomi") || m.contains("oppo") || m.contains("realme") || m.contains("vivo")
+    val isXiaomi = m.contains("xiaomi")
+    val isKnown = isXiaomi || m.contains("oppo") || m.contains("realme") || m.contains("vivo")
     val context = androidx.compose.ui.platform.LocalContext.current
     var showLogs by remember { mutableStateOf(false) }
     
@@ -689,7 +853,14 @@ fun AboutDialog(onDismiss: () -> Unit, onOpenSettings: () -> Unit, onOpenOEM: ()
                     
                     Spacer(Modifier.height(16.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = if (isKnown) onOpenOEM else onOpenSettings, modifier = Modifier.weight(1f)) { Text("App Info") }
+                        Button(onClick = if (isKnown) onOpenOEM else onOpenSettings, modifier = Modifier.weight(1f)) {
+                            Text(if (isXiaomi) "Auto-Start" else "App Info")
+                        }
+                        if (isXiaomi) {
+                            Button(onClick = onOpenMIUIPermissions, modifier = Modifier.weight(1f)) {
+                                Text("MIUI Perms")
+                            }
+                        }
                         OutlinedButton(onClick = { showLogs = true }, modifier = Modifier.weight(1f)) { Text("Logs") }
                     }
                     
@@ -813,7 +984,7 @@ fun AlarmEditDialog(existingAlarm: ScheduledAlarm?, onDismiss: () -> Unit, onCon
     }
 
     AlertDialog(onDismissRequest = onDismiss, title = { Text(if (existingAlarm == null) "Manual Alarm" else "Edit Alarm") }, text = { LazyColumn { item {
-        OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth()); Spacer(Modifier.height(16.dp))
+        OutlinedTextField(value = title, onValueChange = { if (it.length <= 50) title = it }, label = { Text("Title (${title.length}/50)") }, modifier = Modifier.fillMaxWidth()); Spacer(Modifier.height(16.dp))
         Row(modifier = Modifier.fillMaxWidth().clickable { DatePickerDialog(context, { _, y, m, d -> calendar.set(y, m, d); selectedDate = calendar.time }, calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH)).show() }.padding(8.dp)) { Icon(Icons.Default.DateRange, null); Spacer(Modifier.width(16.dp)); Text("Date: ${dateSdf.format(selectedDate)}") }
         Row(modifier = Modifier.padding(8.dp).fillMaxWidth().clickable { showTimePicker = true }) { Icon(Icons.Default.Schedule, null); Spacer(Modifier.width(16.dp)); Text("Time: ${timeSdf.format(selectedTime)}") }
         Spacer(Modifier.height(16.dp)); FlowRow(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf(RecurrenceType.NONE, RecurrenceType.DAILY, RecurrenceType.WEEKLY, RecurrenceType.MONTHLY).forEach { type -> FilterChip(selected = recurrenceType == type, onClick = { recurrenceType = type }, label = { Text(type.name) }) } }

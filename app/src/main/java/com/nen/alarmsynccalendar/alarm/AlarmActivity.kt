@@ -148,11 +148,11 @@ class AlarmActivity : ComponentActivity() {
                 val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                 notificationManager.cancel(alarmId)
             }
-            val homeIntent = Intent(Intent.ACTION_MAIN).apply {
-                addCategory(Intent.CATEGORY_HOME)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            val appIntent = Intent(this, com.nen.alarmsynccalendar.MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra("OPEN_TAB", "past")
             }
-            startActivity(homeIntent)
+            startActivity(appIntent)
             finishAndRemoveTask()
         } catch (e: Exception) {
             finish()
@@ -239,105 +239,120 @@ fun AlarmScreen(message: String, meetingLink: String?, location: String?, travel
             color = Color.Black
         ) {
             Column(
-                modifier = Modifier.fillMaxSize().padding(32.dp),
-                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxSize().padding(24.dp),
+                verticalArrangement = Arrangement.SpaceBetween,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Icon(
-                    imageVector = Icons.Default.NotificationsActive,
-                    contentDescription = null,
-                    modifier = Modifier.size(100.dp),
-                    tint = Color.White
-                )
-                Spacer(modifier = Modifier.height(48.dp))
-                Text(
-                    text = message,
-                    fontSize = 48.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                    textAlign = TextAlign.Center,
-                    lineHeight = 56.sp
-                )
-                if (location != null) {
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Text(
-                        text = when {
-                            isLongTrip -> "Set 24hrs before to plan travel to $location"
-                            travelMinutes != null -> "${com.nen.alarmsynccalendar.formatTravelTime(travelMinutes)} to $location"
-                            else -> location
-                        },
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xFFB0BEC5),
-                        textAlign = TextAlign.Center,
-                        lineHeight = 28.sp
-                    )
-                }
-                Spacer(modifier = Modifier.height(60.dp))
-                if (location != null && !isLongTrip && !com.nen.alarmsynccalendar.calendar.MeetingUtils.isRoomLikeLocation(location)) {
-                    Button(
-                        onClick = { onCheckMap(location) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(80.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF1565C0), // Material Blue for navigation
-                            contentColor = Color.White
-                        ),
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Map, null, modifier = Modifier.size(32.dp))
-                            Spacer(Modifier.width(12.dp))
-                            Text(
-                                text = "CHECK MAP",
-                                fontSize = 24.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
-                if (!meetingLink.isNullOrBlank()) {
-                    Button(
-                        onClick = { onJoin(meetingLink) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(80.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF2E7D32), // Premium Material Green
-                            contentColor = Color.White
-                        ),
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.VideoCall, null, modifier = Modifier.size(32.dp))
-                            Spacer(Modifier.width(12.dp))
-                            Text(
-                                text = "JOIN THE MEET",
-                                fontSize = 24.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
-                Button(
-                    onClick = onDismiss,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(80.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color.White,
-                        contentColor = Color.Black
-                    ),
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(
-                        text = "DISMISS",
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.ExtraBold
+                    Icon(
+                        imageVector = Icons.Default.NotificationsActive,
+                        contentDescription = null,
+                        modifier = Modifier.size(80.dp),
+                        tint = Color.White
                     )
+                    Spacer(modifier = Modifier.height(32.dp))
+                    Text(
+                        text = message,
+                        fontSize = 40.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 48.sp,
+                        maxLines = 3,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                    if (location != null) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = when {
+                                isLongTrip -> "Set 24hrs before to plan travel to $location"
+                                travelMinutes != null -> "${com.nen.alarmsynccalendar.formatTravelTime(travelMinutes)} to $location"
+                                else -> location
+                            },
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFFB0BEC5),
+                            textAlign = TextAlign.Center,
+                            lineHeight = 26.sp,
+                            maxLines = 2,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    if (location != null && !isLongTrip && !com.nen.alarmsynccalendar.calendar.MeetingUtils.isRoomLikeLocation(location)) {
+                        Button(
+                            onClick = { onCheckMap(location) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(80.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF1565C0), // Material Blue for navigation
+                                contentColor = Color.White
+                            ),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Map, null, modifier = Modifier.size(32.dp))
+                                Spacer(Modifier.width(12.dp))
+                                Text(
+                                    text = "CHECK MAP",
+                                    fontSize = 24.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+                    if (!meetingLink.isNullOrBlank()) {
+                        Button(
+                            onClick = { onJoin(meetingLink) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(80.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF2E7D32), // Premium Material Green
+                                contentColor = Color.White
+                            ),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.VideoCall, null, modifier = Modifier.size(32.dp))
+                                Spacer(Modifier.width(12.dp))
+                                Text(
+                                    text = "JOIN THE MEET",
+                                    fontSize = 24.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+                    Button(
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(80.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color.White,
+                            contentColor = Color.Black
+                        ),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)
+                    ) {
+                        Text(
+                            text = "DISMISS",
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
                 }
             }
         }

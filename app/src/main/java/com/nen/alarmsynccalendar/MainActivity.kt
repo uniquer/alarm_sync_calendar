@@ -34,6 +34,7 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: MainViewModel by viewModels()
     private lateinit var authService: AuthorizationService
+    private val openTabState = mutableStateOf<String?>(null)
 
     private val requestPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { _ -> }
@@ -106,10 +107,17 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        openTabState.value = intent.getStringExtra("OPEN_TAB")
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         authService = AuthorizationService(this)
         com.nen.alarmsynccalendar.maps.MapsService.init(this)
+        openTabState.value = intent.getStringExtra("OPEN_TAB")
 
         val syncPrefs = getSharedPreferences("sync_logs", Context.MODE_PRIVATE)
         if (!syncPrefs.contains("first_run_time")) {
@@ -154,7 +162,8 @@ class MainActivity : ComponentActivity() {
                             appSettings = viewModel.appSettings,
                             onUpdateSettings = { viewModel.updateSettings(it) },
                             showLocationPrompt = viewModel.showLocationPrompt,
-                            onDismissLocationPrompt = { viewModel.showLocationPrompt = false }
+                            onDismissLocationPrompt = { viewModel.showLocationPrompt = false },
+                            openTabState = openTabState
                         )
 
                         if (viewModel.isSyncing && viewModel.cloudEvents.isEmpty()) {
@@ -247,16 +256,11 @@ class MainActivity : ComponentActivity() {
             .enqueueUniquePeriodicWork("CalendarSync", ExistingPeriodicWorkPolicy.UPDATE, req)
 
         val syncPrefs = getSharedPreferences("sync_logs", Context.MODE_PRIVATE)
-        val lastLogTime = syncPrefs.getLong("last_enqueue_log_time", 0L)
-        val now = System.currentTimeMillis()
-        val nextPeriodic = now + (30 * 60 * 1000L)
-        val nextFallback = now + (120 * 60 * 1000L)
+        val nextFallback = System.currentTimeMillis() + (120 * 60 * 1000L)
 
-        if (now - lastLogTime > 25 * 60 * 1000L) {
-            val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-            logToHistory("[Scheduler] Periodic scheduled. Next run: ${sdf.format(java.util.Date(nextPeriodic))}")
-            logToHistory("[Scheduler] Fallback scheduled. Next run: ${sdf.format(java.util.Date(nextFallback))}")
-            syncPrefs.edit().putLong("last_enqueue_log_time", now).apply()
+        if (!syncPrefs.getBoolean("scheduler_initialized", false)) {
+            logToHistory("[Scheduler] Registered background tasks")
+            syncPrefs.edit().putBoolean("scheduler_initialized", true).apply()
         }
 
         // Also schedule the initial fallback alarm for the background sync loop
@@ -321,6 +325,18 @@ class MainActivity : ComponentActivity() {
             }
             startActivity(i)
         } catch (e: Exception) { openSettings() }
+    }
+
+    fun openMIUIPermissions() {
+        try {
+            val intent = Intent("miui.intent.action.APP_PERM_EDITOR").apply {
+                setClassName("com.miui.securitycenter", "com.miui.permcenter.permissions.PermissionsEditorActivity")
+                putExtra("extra_pkgname", packageName)
+            }
+            startActivity(intent)
+        } catch (e: Exception) {
+            openSettings()
+        }
     }
 
     private fun logToHistory(message: String) {

@@ -38,7 +38,7 @@ class SyncRepository(private val context: Context) {
     }
 
     /** Single source of truth for deriving an alarm ID from a calendar event ID. */
-    fun alarmIdForEvent(googleEventId: String): Int = googleEventId.hashCode()
+    fun alarmIdForEvent(googleEventId: String): Int = googleEventId.hashCode() and 0x7FFFFFFF
 
     /**
      * Single source of truth for when an event's alarm should fire.
