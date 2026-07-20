@@ -24,6 +24,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.font.FontWeight
 import com.nen.alarmsynccalendar.alarm.AlarmScheduler
 import java.text.SimpleDateFormat
@@ -311,32 +313,32 @@ fun AlarmsTabScreen(
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Text("On some custom Android skins (OEMs like Xiaomi, Oppo, Vivo, Realme), the system blocks background alarms from drawing overlays unless specific permissions are manually granted. Please enable:")
                     Spacer(Modifier.height(12.dp))
-                    Text("• Auto-start / Startup apps\n• Other Permissions (Display pop-up window, Show on lock screen)\n• Battery optimization set to 'Unrestricted'", style = MaterialTheme.typography.bodySmall)
+                    Text("• Other Permissions (Display pop-up window, Show on lock screen)\n• Auto-start / Startup apps\n• Battery optimization set to 'Unrestricted'", style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(16.dp))
                     
                     // Action buttons
-                    Button(
-                        onClick = { (context as MainActivity).openSettings() },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Battery Perms")
-                    }
-                    if (isKnownOem) {
-                        Spacer(Modifier.height(8.dp))
-                        Button(
-                            onClick = { (context as MainActivity).openOEMSettings() },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Auto-Start settings")
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        if (isXiaomi) {
+                            Button(
+                                onClick = { (context as MainActivity).openMIUIPermissions() },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Other Permissions")
+                            }
                         }
-                    }
-                    if (isXiaomi) {
-                        Spacer(Modifier.height(8.dp))
+                        if (isKnownOem) {
+                            Button(
+                                onClick = { (context as MainActivity).openOEMSettings() },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Auto-Start settings")
+                            }
+                        }
                         Button(
-                            onClick = { (context as MainActivity).openMIUIPermissions() },
+                            onClick = { (context as MainActivity).openSettings() },
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Other Permissions")
+                            Text("Battery Perms")
                         }
                     }
                 }
@@ -668,9 +670,17 @@ fun AlarmCard(alarm: ScheduledAlarm, onEdit: (ScheduledAlarm) -> Unit, onDelete:
                     Text(text = alarm.message, style = MaterialTheme.typography.titleMedium, textDecoration = if (isPast) androidx.compose.ui.text.style.TextDecoration.LineThrough else null, modifier = Modifier.weight(1f), maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                 }
                 if (alarm.message == "Test alarm to show on lock screen" && secondsLeft > 0L) {
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.height(8.dp))
+                    val progress = (secondsLeft.toFloat() / 30f).coerceIn(0f, 1f)
+                    LinearProgressIndicator(
+                        progress = progress,
+                        modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+                        color = MaterialTheme.colorScheme.error,
+                        trackColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+                    )
+                    Spacer(Modifier.height(8.dp))
                     Text(
-                        text = "Triggering in $secondsLeft seconds. Please lock your screen!",
+                        text = "Triggering alarm in $secondsLeft seconds.\nPlease lock your screen! To verify alarm ringer works fine",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error,
                         fontWeight = FontWeight.Bold
@@ -797,29 +807,50 @@ fun AboutDialog(onDismiss: () -> Unit, onOpenSettings: () -> Unit, onOpenOEM: ()
                     
                     Spacer(Modifier.height(16.dp))
                     Text("Device Reliability", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-                    Text("For 100% reliability, ensure these are enabled in App Info:", style = MaterialTheme.typography.bodySmall)
-                    Text("• Auto-start\n• Battery: 'Unrestricted'\n• Lock app in Recents (Padlock icon)\n• Show on Lock screen\n• Display over other apps", style = MaterialTheme.typography.bodySmall)
+                    Text("For 100% reliability, ensure these are enabled in settings:", style = MaterialTheme.typography.bodySmall)
+                    Text("• Show on Lock screen\n• Display over other apps\n• Auto-start\n• Battery: 'Unrestricted'\n• Lock app in Recents (Padlock icon)", style = MaterialTheme.typography.bodySmall)
                     
                     Spacer(Modifier.height(16.dp))
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                            Button(onClick = onOpenSettings, modifier = Modifier.weight(1f)) {
-                                Text("Battery Perms")
-                            }
-                            if (isKnown) {
+                        if (isXiaomi) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                Button(onClick = onOpenMIUIPermissions, modifier = Modifier.weight(1f)) {
+                                    Text("Other Perms")
+                                }
                                 Button(onClick = onOpenOEM, modifier = Modifier.weight(1f)) {
                                     Text("Auto-Start")
                                 }
                             }
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                            if (isXiaomi) {
-                                Button(onClick = onOpenMIUIPermissions, modifier = Modifier.weight(1f)) {
-                                    Text("Other Perms")
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                Button(onClick = onOpenSettings, modifier = Modifier.weight(1f)) {
+                                    Text("Battery Perms")
+                                }
+                                OutlinedButton(onClick = { showLogs = true }, modifier = Modifier.weight(1f)) {
+                                    Text("View Logs")
                                 }
                             }
-                            OutlinedButton(onClick = { showLogs = true }, modifier = Modifier.weight(1f)) {
-                                Text("View Logs")
+                        } else if (isKnown) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                Button(onClick = onOpenOEM, modifier = Modifier.weight(1f)) {
+                                    Text("Auto-Start")
+                                }
+                                Button(onClick = onOpenSettings, modifier = Modifier.weight(1f)) {
+                                    Text("Battery Perms")
+                                }
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                OutlinedButton(onClick = { showLogs = true }, modifier = Modifier.fillMaxWidth()) {
+                                    Text("View Logs")
+                                }
+                            }
+                        } else {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                Button(onClick = onOpenSettings, modifier = Modifier.weight(1f)) {
+                                    Text("Battery Perms")
+                                }
+                                OutlinedButton(onClick = { showLogs = true }, modifier = Modifier.weight(1f)) {
+                                    Text("View Logs")
+                                }
                             }
                         }
                     }
@@ -1151,7 +1182,7 @@ fun SettingsTabScreen(settings: AppSettings, onUpdateSettings: (AppSettings) -> 
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        text = "Background sync has not run recently. On some devices (like Xiaomi, Oppo), you must enable Auto-start, set Battery saving to 'Unrestricted' in App Info, and lock the app in Recents (padlock icon) to allow syncing in the background.",
+                        text = "Background sync has not run recently. On some devices (like Xiaomi, Oppo), you must grant Other Permissions (Display pop-up window/Show on lock screen), enable Auto-start, set Battery to 'Unrestricted' in settings, and lock the app in Recents (padlock icon) to allow syncing.",
                         style = MaterialTheme.typography.bodyMedium
                     )
                     Spacer(Modifier.height(12.dp))
@@ -1280,22 +1311,6 @@ fun SettingsTabScreen(settings: AppSettings, onUpdateSettings: (AppSettings) -> 
                         val mainActivity = context as? MainActivity
 
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                Button(
-                                    onClick = { mainActivity?.openSettings() },
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text("Battery Perms")
-                                }
-                                if (isKnownOem) {
-                                    Button(
-                                        onClick = { mainActivity?.openOEMSettings() },
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Text("Auto-Start")
-                                    }
-                                }
-                            }
                             if (isXiaomi) {
                                 Button(
                                     onClick = { mainActivity?.openMIUIPermissions() },
@@ -1303,6 +1318,20 @@ fun SettingsTabScreen(settings: AppSettings, onUpdateSettings: (AppSettings) -> 
                                 ) {
                                     Text("Other Perms")
                                 }
+                            }
+                            if (isKnownOem) {
+                                Button(
+                                    onClick = { mainActivity?.openOEMSettings() },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Auto-Start")
+                                }
+                            }
+                            Button(
+                                onClick = { mainActivity?.openSettings() },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                    Text("Battery Perms")
                             }
                         }
                     }
