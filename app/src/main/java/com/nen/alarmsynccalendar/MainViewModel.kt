@@ -226,6 +226,25 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun toggleSecondaryCalendar(email: String, calendarId: String, enabled: Boolean) {
+        val i = connectedAccounts.indexOfFirst { it.email == email }
+        if (i != -1) {
+            val currentList = connectedAccounts[i].selectedSecondaryCalendarIds.toMutableList()
+            if (enabled) {
+                if (!currentList.contains(calendarId)) currentList.add(calendarId)
+            } else {
+                currentList.remove(calendarId)
+            }
+            connectedAccounts[i] = connectedAccounts[i].copy(selectedSecondaryCalendarIds = currentList)
+            saveAccounts()
+            refreshCloudEvents(isManual = true)
+        }
+    }
+
+    suspend fun fetchAvailableCalendarsForAccount(acc: ConnectedCloudAccount): List<com.nen.alarmsynccalendar.calendar.GoogleCalendarInfo> {
+        return repo.fetchAvailableCalendars(acc)
+    }
+
     // ── Alarm toggle ──────────────────────────────────────────────────────────
 
     fun toggleEventAlarm(event: EventInfo, enabled: Boolean) {

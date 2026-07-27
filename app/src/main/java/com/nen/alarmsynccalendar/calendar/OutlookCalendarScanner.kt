@@ -24,9 +24,10 @@ class OutlookCalendarScanner(private val context: Context) {
                     val list = mutableListOf<GoogleCalendarInfo>()
                     for (i in 0 until value.length()) {
                         val item = value.getJSONObject(i)
-                        if (item.optBoolean("isDefaultCalendar", false)) {
-                            list.add(GoogleCalendarInfo(item.getString("id"), item.optString("name", "Default"), true))
-                        }
+                        val isDefault = item.optBoolean("isDefaultCalendar", false)
+                        val id = item.getString("id")
+                        val name = item.optString("name", if (isDefault) "Default Calendar" else id)
+                        list.add(GoogleCalendarInfo(id, name, isDefault))
                     }
                     return@withContext list
                 }
@@ -37,9 +38,19 @@ class OutlookCalendarScanner(private val context: Context) {
 
     suspend fun fetchEventsForAccount(email: String, token: String, selectedCalendarIds: List<String>): List<EventInfo> = withContext(Dispatchers.IO) {
         try {
-            val events = fetchEventsFromCalendar(token, "me/calendar", email)
+            val pathsToFetch = (listOf("me/calendar") + selectedCalendarIds.map { "me/calendars/$it" }).distinct()
+            val allEvents = pathsToFetch.flatMap { path ->
+                try {
+                    fetchEventsFromCalendar(token, path, email)
+                } catch (e: Exception) {
+                    Log.w("CAL_DEBUG", "Error fetching Outlook path $path for $email: ${e.message}")
+                    emptyList()
+                }
+            }
             val now = System.currentTimeMillis()
-            events.filter { (it.startTime - 5 * 60 * 1000L) > now }.groupBy { it.recurringEventId ?: it.googleEventId }.map { (_, instances) -> instances.sortedBy { it.startTime }.first() }
+            allEvents.filter { (it.startTime - 5 * 60 * 1000L) > now }
+                .groupBy { it.recurringEventId ?: it.googleEventId }
+                .map { (_, instances) -> instances.sortedBy { it.startTime }.first() }
         } catch (e: Exception) { Log.e("CAL_DEBUG", "Outlook events error: ${e.message}"); throw e }
     }
 

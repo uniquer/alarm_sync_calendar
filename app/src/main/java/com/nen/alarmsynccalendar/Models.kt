@@ -54,6 +54,7 @@ data class ConnectedCloudAccount(
     val email: String,
     val provider: CloudProvider,
     val isPrimaryEnabled: Boolean = true,
+    val selectedSecondaryCalendarIds: List<String> = emptyList(),
     var accessToken: String? = null,
     var refreshToken: String? = null,
     var isExpanded: Boolean = false,
@@ -75,7 +76,8 @@ data class AppSettings(
     val offlineBufferMinutes: Int = 15,
     val startLocationName: String? = null,
     val startLocationLat: Double? = null,
-    val startLocationLng: Double? = null
+    val startLocationLng: Double? = null,
+    val enableSecondaryCalendars: Boolean = false
 ) {
     val hasStartLocation: Boolean get() = startLocationLat != null && startLocationLng != null
 
@@ -83,6 +85,7 @@ data class AppSettings(
         val editor = context.getSharedPreferences("alarms", android.content.Context.MODE_PRIVATE).edit()
             .putInt("online_lead_minutes", onlineLeadMinutes)
             .putInt("offline_buffer_minutes", offlineBufferMinutes)
+            .putBoolean("enable_secondary_calendars", enableSecondaryCalendars)
         if (startLocationName != null) editor.putString("start_location_name", startLocationName)
         else editor.remove("start_location_name")
         if (startLocationLat != null && startLocationLng != null) {
@@ -102,7 +105,8 @@ data class AppSettings(
                 offlineBufferMinutes = p.getInt("offline_buffer_minutes", 15),
                 startLocationName = p.getString("start_location_name", null),
                 startLocationLat = if (p.contains("start_location_lat")) Double.fromBits(p.getLong("start_location_lat", 0L)) else null,
-                startLocationLng = if (p.contains("start_location_lng")) Double.fromBits(p.getLong("start_location_lng", 0L)) else null
+                startLocationLng = if (p.contains("start_location_lng")) Double.fromBits(p.getLong("start_location_lng", 0L)) else null,
+                enableSecondaryCalendars = p.getBoolean("enable_secondary_calendars", false)
             )
         }
     }

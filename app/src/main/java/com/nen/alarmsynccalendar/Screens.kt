@@ -49,7 +49,9 @@ fun MainScreen(
     onToggleAlarm: (EventInfo, Boolean) -> Unit, isSyncing: Boolean,
     appSettings: AppSettings, onUpdateSettings: (AppSettings) -> Unit,
     showLocationPrompt: Boolean, onDismissLocationPrompt: () -> Unit,
-    openTabState: MutableState<String?>
+    openTabState: MutableState<String?>,
+    onToggleSecondaryCalendar: ((String, String, Boolean) -> Unit)? = null,
+    fetchAvailableCalendars: (suspend (ConnectedCloudAccount) -> List<com.nen.alarmsynccalendar.calendar.GoogleCalendarInfo>)? = null
 ) {
     var selectedTab by remember { mutableStateOf(0) }
     var alarmsSubTab by remember { mutableStateOf(0) }
@@ -171,7 +173,7 @@ fun MainScreen(
                         onSubTabChange = { alarmsSubTab = it }
                     )
                 }
-                1 -> CalendarsTabScreen(cloudEvents, connectedAccounts, lastSyncTime, onDisconnectAccount, onTogglePrimary, onManualSync, alarmScheduler, activeAlarms, onSave, context, excludedEvents, onToggleAlarm, isSyncing)
+                1 -> CalendarsTabScreen(cloudEvents, connectedAccounts, lastSyncTime, onDisconnectAccount, onTogglePrimary, onManualSync, alarmScheduler, activeAlarms, onSave, context, excludedEvents, onToggleAlarm, isSyncing, appSettings, onToggleSecondaryCalendar, fetchAvailableCalendars)
                 2 -> SettingsTabScreen(appSettings, onUpdateSettings)
             }
         }
@@ -459,7 +461,24 @@ fun AlarmsTabScreen(
 }
 
 @Composable
-fun CalendarsTabScreen(cloudEvents: List<EventInfo>, accounts: List<ConnectedCloudAccount>, lastSyncTime: Long, onDisconnectAccount: (String) -> Unit, onTogglePrimary: (String, Boolean) -> Unit, onManualSync: () -> Unit, alarmScheduler: AlarmScheduler, activeAlarms: MutableList<ScheduledAlarm>, onSave: () -> Unit, context: Context, excludedEvents: List<ExcludedEvent>, onToggleAlarm: (EventInfo, Boolean) -> Unit, isSyncing: Boolean) {
+fun CalendarsTabScreen(
+    cloudEvents: List<EventInfo>,
+    accounts: List<ConnectedCloudAccount>,
+    lastSyncTime: Long,
+    onDisconnectAccount: (String) -> Unit,
+    onTogglePrimary: (String, Boolean) -> Unit,
+    onManualSync: () -> Unit,
+    alarmScheduler: AlarmScheduler,
+    activeAlarms: MutableList<ScheduledAlarm>,
+    onSave: () -> Unit,
+    context: Context,
+    excludedEvents: List<ExcludedEvent>,
+    onToggleAlarm: (EventInfo, Boolean) -> Unit,
+    isSyncing: Boolean,
+    appSettings: AppSettings = AppSettings(),
+    onToggleSecondaryCalendar: ((String, String, Boolean) -> Unit)? = null,
+    fetchAvailableCalendars: (suspend (ConnectedCloudAccount) -> List<com.nen.alarmsynccalendar.calendar.GoogleCalendarInfo>)? = null
+) {
     val sdf = SimpleDateFormat("HH:mm", Locale.getDefault()); val dateSdf = SimpleDateFormat("EEE, MMM dd", Locale.getDefault())
     val syncSdf = SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault())
     var accountToDelete by remember { mutableStateOf<String?>(null) }
@@ -499,7 +518,13 @@ fun CalendarsTabScreen(cloudEvents: List<EventInfo>, accounts: List<ConnectedClo
             IconButton(onClick = onManualSync) { Icon(Icons.Default.Refresh, null, modifier = Modifier.graphicsLayer(rotationZ = if (isSyncing) angle else 0f)) }
         }
         Spacer(Modifier.height(16.dp))
-        Text("Only Primary calendars are synced for performance.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+        Spacer(Modifier.height(16.dp))
+        if (appSettings.enableSecondaryCalendars) {
+            Text("Secondary calendars enabled. Check the secondary calendars under each account that should be synced.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+        } else {
+            Text("Only Primary calendars are synced for performance.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+        }
+        Spacer(Modifier.height(16.dp))
         Spacer(Modifier.height(16.dp))
 
         // Deleted diagnostics and restricted cards to place in SettingsTabScreen
@@ -555,6 +580,91 @@ fun CalendarsTabScreen(cloudEvents: List<EventInfo>, accounts: List<ConnectedClo
                                 IconButton(onClick = { accountToDelete = acc.email }) { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) }
                             }
                             if (isExpanded) {
+                                if (appSettings.enableSecondaryCalendars && fetchAvailableCalendars != null && onToggleSecondaryCalendar != null) {
+                                    var availableCalendars by remember { mutableStateOf<List<com.nen.alarmsynccalendar.calendar.GoogleCalendarInfo>?>(null) }
+                                    var isLoadingCalendars by remember { mutableStateOf(false) }
+                                    var isSecondarySectionExpanded by remember { mutableStateOf(false) }
+
+                                    LaunchedEffect(acc.email, appSettings.enableSecondaryCalendars) {
+                                        isLoadingCalendars = true
+                                        availableCalendars = fetchAvailableCalendars(acc)
+                                        isLoadingCalendars = false
+                                    }
+
+                                    val secondaryCals = availableCalendars?.filter { !it.isPrimary } ?: emptyList()
+                                    val syncedCount = secondaryCals.count { acc.selectedSecondaryCalendarIds.contains(it.id) }
+                                    val totalCount = secondaryCals.size
+
+                                    Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { isSecondarySectionExpanded = !isSecondarySectionExpanded }
+                                                .padding(vertical = 4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (isSecondarySectionExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                                contentDescription = if (isSecondarySectionExpanded) "Collapse" else "Expand",
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                            Spacer(Modifier.width(8.dp))
+                                            Text(
+                                                text = if (isLoadingCalendars) "Secondary Calendars" else "Secondary Calendars ($syncedCount/$totalCount)",
+                                                style = MaterialTheme.typography.titleSmall,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
+
+                                        if (isSecondarySectionExpanded) {
+                                            Spacer(Modifier.height(4.dp))
+                                            if (isLoadingCalendars) {
+                                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 28.dp)) {
+                                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                                    Spacer(Modifier.width(8.dp))
+                                                    Text("Loading calendars...", style = MaterialTheme.typography.bodySmall)
+                                                }
+                                            } else if (secondaryCals.isEmpty()) {
+                                                Text(
+                                                    text = "No secondary calendars found.",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.secondary,
+                                                    modifier = Modifier.padding(start = 28.dp)
+                                                )
+                                            } else {
+                                                Column(modifier = Modifier.padding(start = 12.dp)) {
+                                                    secondaryCals.forEach { cal ->
+                                                        val isChecked = acc.selectedSecondaryCalendarIds.contains(cal.id)
+                                                        Row(
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .clickable {
+                                                                    onToggleSecondaryCalendar(acc.email, cal.id, !isChecked)
+                                                                }
+                                                                .padding(vertical = 2.dp)
+                                                        ) {
+                                                            Checkbox(
+                                                                checked = isChecked,
+                                                                onCheckedChange = { checked ->
+                                                                    onToggleSecondaryCalendar(acc.email, cal.id, checked)
+                                                                }
+                                                            )
+                                                            Spacer(Modifier.width(8.dp))
+                                                            Text(
+                                                                text = cal.summary,
+                                                                style = MaterialTheme.typography.bodyMedium
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Divider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                                }
+
                                 if (accountEvents.isEmpty()) {
                                     Text("No events found in primary calendar.", modifier = Modifier.padding(start = 48.dp, bottom = 12.dp), style = MaterialTheme.typography.bodySmall)
                                 } else {
@@ -881,9 +991,64 @@ fun AboutDialog(onDismiss: () -> Unit, onOpenSettings: () -> Unit, onOpenOEM: ()
                     }
                     
                     Spacer(Modifier.height(16.dp))
-                    Text("Project Links", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
-                    Text(text = "Source Code (GitHub)", color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/uniquer/alarm_sync_calendar"))) }.padding(vertical = 4.dp))
-                    Text(text = "Official Website", color = MaterialTheme.colorScheme.primary, modifier = Modifier.clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://genforgelab.com/"))) }.padding(vertical = 4.dp))
+                    Text("Project Links", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(4.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/uniquer/alarm_sync_calendar"))) }
+                            .padding(vertical = 4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Code,
+                            contentDescription = "Source Code",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = "Source Code (GitHub)",
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline
+                            )
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Default.OpenInNew,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://genforgelab.com/"))) }
+                            .padding(vertical = 4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Language,
+                            contentDescription = "Website",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = "Website",
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline
+                            )
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Default.OpenInNew,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
                 }
             }
         },
@@ -1339,6 +1504,32 @@ fun SettingsTabScreen(settings: AppSettings, onUpdateSettings: (AppSettings) -> 
             }
         }
         Spacer(Modifier.height(16.dp))
+
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.CalendarMonth, null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Secondary Calendars", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = settings.enableSecondaryCalendars,
+                        onCheckedChange = { enabled ->
+                            onUpdateSettings(settings.copy(enableSecondaryCalendars = enabled))
+                        }
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Enabling secondary calendars could sync more alarms. Ensure to enable only those calendars that need syncing.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (settings.enableSecondaryCalendars) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
 
         Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
             Column(modifier = Modifier.padding(16.dp)) {

@@ -32,7 +32,9 @@ class GoogleCalendarScanner(private val context: Context) {
                     for (i in 0 until items.length()) {
                         val item = items.getJSONObject(i)
                         val isPrimary = item.optBoolean("primary", false)
-                        if (isPrimary) list.add(GoogleCalendarInfo(item.getString("id"), item.optString("summary", "Primary"), true))
+                        val id = item.getString("id")
+                        val summary = item.optString("summary", if (isPrimary) "Primary Calendar" else id)
+                        list.add(GoogleCalendarInfo(id, summary, isPrimary))
                     }
                     return@withContext list
                 }
@@ -45,9 +47,19 @@ class GoogleCalendarScanner(private val context: Context) {
         val scope = "oauth2:https://www.googleapis.com/auth/calendar.readonly"
         try {
             val token = GoogleAuthUtil.getToken(context, email, scope)
-            val events = fetchEventsFromCalendar(token, "primary", email)
+            val calendarIdsToFetch = (listOf("primary") + selectedCalendarIds).distinct()
+            val allEvents = calendarIdsToFetch.flatMap { calId ->
+                try {
+                    fetchEventsFromCalendar(token, calId, email)
+                } catch (e: Exception) {
+                    Log.w("CAL_DEBUG", "Error fetching calendar $calId for $email: ${e.message}")
+                    emptyList()
+                }
+            }
             val now = System.currentTimeMillis()
-            events.filter { (it.startTime - 5 * 60 * 1000L) > now }.groupBy { it.recurringEventId ?: it.googleEventId }.map { (_, instances) -> instances.sortedBy { it.startTime }.first() }
+            allEvents.filter { (it.startTime - 5 * 60 * 1000L) > now }
+                .groupBy { it.recurringEventId ?: it.googleEventId }
+                .map { (_, instances) -> instances.sortedBy { it.startTime }.first() }
         } catch (e: Exception) { Log.e("CAL_DEBUG", "Error syncing $email: ${e.message}"); throw e }
     }
 

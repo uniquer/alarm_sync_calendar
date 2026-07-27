@@ -91,8 +91,11 @@ class MainActivity : ComponentActivity() {
                             } ?: "Outlook User"
 
                             viewModel.addAccount(ConnectedCloudAccount(
-                                email, CloudProvider.OUTLOOK, true,
-                                tokenResponse.accessToken, tokenResponse.refreshToken
+                                email = email,
+                                provider = CloudProvider.OUTLOOK,
+                                isPrimaryEnabled = true,
+                                accessToken = tokenResponse.accessToken,
+                                refreshToken = tokenResponse.refreshToken
                             ))
                         } else {
                             val errorMsg = ex?.localizedMessage ?: "Outlook Sign-in failed."
@@ -163,7 +166,9 @@ class MainActivity : ComponentActivity() {
                             onUpdateSettings = { viewModel.updateSettings(it) },
                             showLocationPrompt = viewModel.showLocationPrompt,
                             onDismissLocationPrompt = { viewModel.showLocationPrompt = false },
-                            openTabState = openTabState
+                            openTabState = openTabState,
+                            onToggleSecondaryCalendar = { email, calId, enabled -> viewModel.toggleSecondaryCalendar(email, calId, enabled) },
+                            fetchAvailableCalendars = { acc -> viewModel.fetchAvailableCalendarsForAccount(acc) }
                         )
 
                         if (viewModel.isSyncing && viewModel.cloudEvents.isEmpty()) {

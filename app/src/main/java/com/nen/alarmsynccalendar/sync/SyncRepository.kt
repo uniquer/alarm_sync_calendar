@@ -181,6 +181,23 @@ class SyncRepository(private val context: Context) {
     }
 
     /**
+     * Fetches available calendars (primary + secondary) for a given account.
+     */
+    suspend fun fetchAvailableCalendars(acc: ConnectedCloudAccount): List<com.nen.alarmsynccalendar.calendar.GoogleCalendarInfo> {
+        return try {
+            if (acc.provider == CloudProvider.GOOGLE) {
+                googleScanner.fetchAvailableCalendars(acc.email)
+            } else {
+                val token = refreshOutlookToken(acc)
+                outlookScanner.fetchAvailableCalendars(acc.email, token)
+            }
+        } catch (e: Exception) {
+            Log.w("SyncRepository", "Failed to fetch available calendars for ${acc.email}: ${e.message}")
+            emptyList()
+        }
+    }
+
+    /**
      * Fetches events for all enabled accounts in parallel, each with its own 10-second timeout.
      * Falls back to the supplied cached events on timeout, auth error, or network error,
      * and reports a typed status per account so the UI can show the right indicator.
@@ -189,16 +206,18 @@ class SyncRepository(private val context: Context) {
         accounts: List<ConnectedCloudAccount>,
         cachedEvents: List<EventInfo>
     ): List<AccountFetchResult> = supervisorScope {
+        val settings = AppSettings.load(context)
         accounts.filter { it.isPrimaryEnabled }.map { acc ->
             async {
                 val cached = cachedEvents.filter { it.accountEmail == acc.email }
+                val secondaryIds = if (settings.enableSecondaryCalendars) acc.selectedSecondaryCalendarIds else emptyList()
                 try {
                     val events = withTimeoutOrNull(10_000L) {
                         if (acc.provider == CloudProvider.GOOGLE) {
-                            googleScanner.fetchEventsForAccount(acc.email, emptyList())
+                            googleScanner.fetchEventsForAccount(acc.email, secondaryIds)
                         } else {
                             val token = refreshOutlookToken(acc)
-                            outlookScanner.fetchEventsForAccount(acc.email, token, emptyList())
+                            outlookScanner.fetchEventsForAccount(acc.email, token, secondaryIds)
                         }
                     }
                     if (events == null) {
