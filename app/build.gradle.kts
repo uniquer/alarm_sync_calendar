@@ -35,8 +35,8 @@ android {
         applicationId = "com.nen.alarmsynccalendar"
         minSdk = 26
         targetSdk = 36
-        versionCode = 12
-        versionName = "2.0"
+        versionCode = 14
+        versionName = "2.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

@@ -96,10 +96,11 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
         }
 
         val accounts: List<ConnectedCloudAccount> = try {
-            gson.fromJson(
+            val raw: List<ConnectedCloudAccount> = gson.fromJson(
                 prefs.getString("google_accounts_v3", "[]") ?: "[]",
                 object : TypeToken<List<ConnectedCloudAccount>>() {}.type
             )
+            raw.map { acc -> if (acc.selectedSecondaryCalendarIds == null) acc.copy(selectedSecondaryCalendarIds = emptyList()) else acc }
         } catch (e: Exception) { emptyList() }
 
         if (accounts.isEmpty()) {

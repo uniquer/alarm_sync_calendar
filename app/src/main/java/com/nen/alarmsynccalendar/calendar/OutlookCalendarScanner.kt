@@ -38,7 +38,7 @@ class OutlookCalendarScanner(private val context: Context) {
 
     suspend fun fetchEventsForAccount(email: String, token: String, selectedCalendarIds: List<String>): List<EventInfo> = withContext(Dispatchers.IO) {
         try {
-            val pathsToFetch = (listOf("me/calendar") + selectedCalendarIds.map { "me/calendars/$it" }).distinct()
+            val pathsToFetch = (listOf("me/calendar") + selectedCalendarIds.map { "me/calendars/${java.net.URLEncoder.encode(it, "UTF-8")}" }).distinct()
             val allEvents = pathsToFetch.flatMap { path ->
                 try {
                     fetchEventsFromCalendar(token, path, email)

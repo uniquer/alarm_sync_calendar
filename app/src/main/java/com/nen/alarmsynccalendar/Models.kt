@@ -54,13 +54,15 @@ data class ConnectedCloudAccount(
     val email: String,
     val provider: CloudProvider,
     val isPrimaryEnabled: Boolean = true,
-    val selectedSecondaryCalendarIds: List<String> = emptyList(),
+    val selectedSecondaryCalendarIds: List<String>? = emptyList(),
     var accessToken: String? = null,
     var refreshToken: String? = null,
     var isExpanded: Boolean = false,
     // nullable for JSON back-compat with older stored data; null is treated as OK
     val syncStatus: AccountSyncStatus? = null
-)
+) {
+    val safeSelectedSecondaryCalendarIds: List<String> get() = selectedSecondaryCalendarIds ?: emptyList()
+}
 
 data class ExcludedEvent(
     val id: String,

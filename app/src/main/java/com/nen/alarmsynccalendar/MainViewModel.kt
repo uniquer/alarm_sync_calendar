@@ -229,7 +229,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun toggleSecondaryCalendar(email: String, calendarId: String, enabled: Boolean) {
         val i = connectedAccounts.indexOfFirst { it.email == email }
         if (i != -1) {
-            val currentList = connectedAccounts[i].selectedSecondaryCalendarIds.toMutableList()
+            val currentList = connectedAccounts[i].safeSelectedSecondaryCalendarIds.toMutableList()
             if (enabled) {
                 if (!currentList.contains(calendarId)) currentList.add(calendarId)
             } else {
@@ -317,7 +317,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         lastSyncTime = prefs().getLong("last_google_sync", 0L)
         val json = prefs().getString("google_accounts_v3", "[]")
         val list: List<ConnectedCloudAccount> = try {
-            gson.fromJson(json, object : TypeToken<List<ConnectedCloudAccount>>() {}.type)
+            val raw: List<ConnectedCloudAccount> = gson.fromJson(json, object : TypeToken<List<ConnectedCloudAccount>>() {}.type)
+            raw.map { acc -> if (acc.selectedSecondaryCalendarIds == null) acc.copy(selectedSecondaryCalendarIds = emptyList()) else acc }
         } catch (e: Exception) { emptyList() }
         connectedAccounts.clear()
         connectedAccounts.addAll(list)

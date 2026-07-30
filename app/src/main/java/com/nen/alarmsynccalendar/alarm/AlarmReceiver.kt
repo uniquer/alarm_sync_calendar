@@ -74,7 +74,7 @@ class AlarmReceiver : BroadcastReceiver() {
                     alarms[alarmIndex] = alarm.copy(recurrenceType = RecurrenceType.NONE)
                     
                     // Create and schedule the new future instance
-                    val newId = System.currentTimeMillis().toInt()
+                    val newId = (System.currentTimeMillis() and 0x7FFFFFFF).toInt()
                     val nextAlarm = alarm.copy(id = newId, time = nextTime)
                     alarms.add(nextAlarm)
                     

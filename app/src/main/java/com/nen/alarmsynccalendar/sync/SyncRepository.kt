@@ -210,7 +210,7 @@ class SyncRepository(private val context: Context) {
         accounts.filter { it.isPrimaryEnabled }.map { acc ->
             async {
                 val cached = cachedEvents.filter { it.accountEmail == acc.email }
-                val secondaryIds = if (settings.enableSecondaryCalendars) acc.selectedSecondaryCalendarIds else emptyList()
+                val secondaryIds = if (settings.enableSecondaryCalendars) acc.safeSelectedSecondaryCalendarIds else emptyList()
                 try {
                     val events = withTimeoutOrNull(10_000L) {
                         if (acc.provider == CloudProvider.GOOGLE) {
@@ -267,11 +267,11 @@ class SyncRepository(private val context: Context) {
         val iterator = finalAlarms.listIterator()
         while (iterator.hasNext()) {
             val alarm = iterator.next()
-            if (alarm.time <= now || alarm.googleEventId == null) continue
+            if (alarm.googleEventId == null) continue
 
             val seriesId = alarm.googleEventId.split("_")[0]
             if (excluded.any { it.id == alarm.googleEventId || it.id == seriesId }) {
-                alarmScheduler.cancelAlarm(alarm.id)
+                if (alarm.time > now) alarmScheduler.cancelAlarm(alarm.id)
                 iterator.remove()
                 changed = true
                 continue
@@ -279,7 +279,7 @@ class SyncRepository(private val context: Context) {
 
             val event = allEvents.find { it.googleEventId == alarm.googleEventId }
             if (event == null) {
-                if (syncedEmails.isNotEmpty()) {
+                if (syncedEmails.isNotEmpty() && alarm.time > now) {
                     alarmScheduler.cancelAlarm(alarm.id)
                     iterator.remove()
                     changed = true
@@ -292,18 +292,25 @@ class SyncRepository(private val context: Context) {
                     event.travelTimeMinutes != alarm.travelTimeMinutes ||
                     event.noDrivingRoute != alarm.noDrivingRoute ||
                     event.startTime != alarm.eventStartTime
-                if (targetTime != alarm.time || isLinkChanged || isTravelChanged) {
-                    alarmScheduler.scheduleAlarm(alarm.id, targetTime, event.title, event.meetingLink, event.location, event.travelTimeMinutes, event.distanceKm, event.noDrivingRoute)
-                    iterator.set(alarm.copy(
-                        time = targetTime,
-                        googleRecurrenceInfo = event.recurringEventId ?: if (event.isRecurring) "true" else null,
-                        meetingLink = event.meetingLink,
-                        location = event.location,
-                        distanceKm = event.distanceKm,
-                        travelTimeMinutes = event.travelTimeMinutes,
-                        noDrivingRoute = event.noDrivingRoute,
-                        eventStartTime = event.startTime
-                    ))
+                
+                if (targetTime > now) {
+                    if (targetTime != alarm.time || isLinkChanged || isTravelChanged) {
+                        alarmScheduler.scheduleAlarm(alarm.id, targetTime, event.title, event.meetingLink, event.location, event.travelTimeMinutes, event.distanceKm, event.noDrivingRoute)
+                        iterator.set(alarm.copy(
+                            time = targetTime,
+                            googleRecurrenceInfo = event.recurringEventId ?: if (event.isRecurring) "true" else null,
+                            meetingLink = event.meetingLink,
+                            location = event.location,
+                            distanceKm = event.distanceKm,
+                            travelTimeMinutes = event.travelTimeMinutes,
+                            noDrivingRoute = event.noDrivingRoute,
+                            eventStartTime = event.startTime
+                        ))
+                        changed = true
+                    }
+                } else if (alarm.time > now) {
+                    alarmScheduler.cancelAlarm(alarm.id)
+                    iterator.remove()
                     changed = true
                 }
             }
@@ -313,22 +320,24 @@ class SyncRepository(private val context: Context) {
             val seriesId = event.recurringEventId ?: event.googleEventId?.split("_")?.get(0)
             val isExcluded = excluded.any { it.id == event.googleEventId || it.id == seriesId }
             if (!isExcluded && event.startTime > now && event.googleEventId != null) {
-                if (finalAlarms.none { it.googleEventId == event.googleEventId }) {
+                if (finalAlarms.none { it.googleEventId == event.googleEventId && it.time > now }) {
                     val targetTime = alarmTimeForEvent(event, settings)
-                    val id = alarmIdForEvent(event.googleEventId)
-                    alarmScheduler.scheduleAlarm(id, targetTime, event.title, event.meetingLink, event.location, event.travelTimeMinutes, event.distanceKm, event.noDrivingRoute)
-                    finalAlarms.add(ScheduledAlarm(
-                        id, targetTime, event.title,
-                        googleEventId = event.googleEventId,
-                        googleRecurrenceInfo = event.recurringEventId ?: if (event.isRecurring) "true" else null,
-                        meetingLink = event.meetingLink,
-                        location = event.location,
-                        distanceKm = event.distanceKm,
-                        travelTimeMinutes = event.travelTimeMinutes,
-                        noDrivingRoute = event.noDrivingRoute,
-                        eventStartTime = event.startTime
-                    ))
-                    changed = true
+                    if (targetTime > now) {
+                        val id = alarmIdForEvent(event.googleEventId)
+                        alarmScheduler.scheduleAlarm(id, targetTime, event.title, event.meetingLink, event.location, event.travelTimeMinutes, event.distanceKm, event.noDrivingRoute)
+                        finalAlarms.add(ScheduledAlarm(
+                            id, targetTime, event.title,
+                            googleEventId = event.googleEventId,
+                            googleRecurrenceInfo = event.recurringEventId ?: if (event.isRecurring) "true" else null,
+                            meetingLink = event.meetingLink,
+                            location = event.location,
+                            distanceKm = event.distanceKm,
+                            travelTimeMinutes = event.travelTimeMinutes,
+                            noDrivingRoute = event.noDrivingRoute,
+                            eventStartTime = event.startTime
+                        ))
+                        changed = true
+                    }
                 }
             }
         }

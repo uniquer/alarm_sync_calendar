@@ -90,7 +90,7 @@ fun MainScreen(
         var f = tm; if (f < System.currentTimeMillis() && rt != RecurrenceType.NONE) f = RecurrenceUtils.calculateNextOccurrence(f, rt, rd)
         if (f >= System.currentTimeMillis()) {
             if (alarmToEdit != null) alarmScheduler.cancelAlarm(alarmToEdit!!.id)
-            val id = alarmToEdit?.id ?: System.currentTimeMillis().toInt()
+            val id = alarmToEdit?.id ?: (System.currentTimeMillis() and 0x7FFFFFFF).toInt()
             val n = ScheduledAlarm(id, f, t, recurrenceType = rt, recurrenceData = rd)
             alarmScheduler.scheduleAlarm(id, f, t); activeAlarms.removeAll { it.id == id }; activeAlarms.add(n)
             
@@ -592,7 +592,7 @@ fun CalendarsTabScreen(
                                     }
 
                                     val secondaryCals = availableCalendars?.filter { !it.isPrimary } ?: emptyList()
-                                    val syncedCount = secondaryCals.count { acc.selectedSecondaryCalendarIds.contains(it.id) }
+                                    val syncedCount = secondaryCals.count { acc.safeSelectedSecondaryCalendarIds.contains(it.id) }
                                     val totalCount = secondaryCals.size
 
                                     Column(modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp)) {
@@ -635,7 +635,7 @@ fun CalendarsTabScreen(
                                             } else {
                                                 Column(modifier = Modifier.padding(start = 12.dp)) {
                                                     secondaryCals.forEach { cal ->
-                                                        val isChecked = acc.selectedSecondaryCalendarIds.contains(cal.id)
+                                                        val isChecked = acc.safeSelectedSecondaryCalendarIds.contains(cal.id)
                                                         Row(
                                                             verticalAlignment = Alignment.CenterVertically,
                                                             modifier = Modifier
