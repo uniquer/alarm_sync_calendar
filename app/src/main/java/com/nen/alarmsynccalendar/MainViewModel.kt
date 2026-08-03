@@ -183,8 +183,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // ── Settings ─────────────────────────────────────────────────────────────
 
     fun updateSettings(newSettings: AppSettings) {
+        val secondaryJustEnabled = !appSettings.enableSecondaryCalendars && newSettings.enableSecondaryCalendars
         appSettings = newSettings
         newSettings.save(getApplication())
+
+        if (secondaryJustEnabled) {
+            viewModelScope.launch {
+                connectedAccounts.forEach { acc ->
+                    if (acc.cachedSecondaryCalendars == null) {
+                        fetchAvailableCalendarsForAccount(acc)
+                    }
+                }
+            }
+        }
+
         // Re-enrich travel info and reschedule alarms with the new lead times.
         if (isCloudSignedIn) refreshCloudEvents(isManual = true)
     }
@@ -241,8 +253,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun updateCachedSecondaryCalendars(email: String, calendars: List<com.nen.alarmsynccalendar.calendar.GoogleCalendarInfo>) {
+        val i = connectedAccounts.indexOfFirst { it.email == email }
+        if (i != -1) {
+            connectedAccounts[i] = connectedAccounts[i].copy(cachedSecondaryCalendars = calendars)
+            saveAccounts()
+        }
+    }
+
     suspend fun fetchAvailableCalendarsForAccount(acc: ConnectedCloudAccount): List<com.nen.alarmsynccalendar.calendar.GoogleCalendarInfo> {
-        return repo.fetchAvailableCalendars(acc)
+        val cals = repo.fetchAvailableCalendars(acc)
+        if (cals.isNotEmpty()) {
+            updateCachedSecondaryCalendars(acc.email, cals)
+        }
+        return cals
     }
 
     // ── Alarm toggle ──────────────────────────────────────────────────────────

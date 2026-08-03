@@ -317,6 +317,7 @@ class SyncRepository(private val context: Context) {
         }
 
         allEvents.forEach { event ->
+            if (event.isAllDay) return@forEach
             val seriesId = event.recurringEventId ?: event.googleEventId?.split("_")?.get(0)
             val isExcluded = excluded.any { it.id == event.googleEventId || it.id == seriesId }
             if (!isExcluded && event.startTime > now && event.googleEventId != null) {

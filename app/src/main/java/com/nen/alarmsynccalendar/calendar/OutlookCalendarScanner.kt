@@ -48,7 +48,7 @@ class OutlookCalendarScanner(private val context: Context) {
                 }
             }
             val now = System.currentTimeMillis()
-            allEvents.filter { (it.startTime - 5 * 60 * 1000L) > now }
+            allEvents.filter { if (it.isAllDay) (it.startTime + 24 * 60 * 60 * 1000L) > now else (it.startTime - 5 * 60 * 1000L) > now }
                 .groupBy { it.recurringEventId ?: it.googleEventId }
                 .map { (_, instances) -> instances.sortedBy { it.startTime }.first() }
         } catch (e: Exception) { Log.e("CAL_DEBUG", "Outlook events error: ${e.message}"); throw e }
@@ -57,7 +57,8 @@ class OutlookCalendarScanner(private val context: Context) {
     private fun fetchEventsFromCalendar(token: String, calendarPath: String, email: String): List<EventInfo> {
         val events = mutableListOf<EventInfo>()
         val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
-        val start = sdf.format(Date()); val end = sdf.format(Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 60) }.time)
+        val startCal = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }
+        val start = sdf.format(startCal.time); val end = sdf.format(Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 60) }.time)
 
         // Graph defaults to ~10 events per page; request bigger pages and follow
         // nextLink so recurring occurrences past page 1 aren't silently dropped.
@@ -76,7 +77,9 @@ class OutlookCalendarScanner(private val context: Context) {
                     val item = value.getJSONObject(i)
                     val id = item.getString("id")
                     val seriesId = item.optString("seriesMasterId").takeIf { it != "null" && it.isNotBlank() }
-                    val startTs = parseIso(item.getJSONObject("start").getString("dateTime"))
+                    val isAllDay = item.optBoolean("isAllDay", false)
+                    val startTs = parseIso(item.optJSONObject("start")?.optString("dateTime") ?: "", isAllDay)
+                    if (startTs == 0L) continue
                     val org = item.optJSONObject("organizer")?.optJSONObject("emailAddress")?.optString("address") ?: "Unknown"
 
                     val desc = item.optJSONObject("body")?.optString("content")?.takeIf { it != "null" && it.isNotBlank() }
@@ -87,7 +90,7 @@ class OutlookCalendarScanner(private val context: Context) {
                         meetingLink = MeetingUtils.extractMeetingLink(loc, desc)
                     }
 
-                    events.add(EventInfo(id.hashCode().toLong(), id, seriesId, seriesId != null, null, item.optString("subject", "No Title"), startTs, 0L, desc, org, email, meetingLink, location = MeetingUtils.extractPhysicalLocation(loc)))
+                    events.add(EventInfo(id.hashCode().toLong(), id, seriesId, seriesId != null, null, item.optString("subject", "No Title"), startTs, 0L, desc, org, email, meetingLink, location = MeetingUtils.extractPhysicalLocation(loc), isAllDay = isAllDay))
                 }
                 nextUrl = json.optString("@odata.nextLink").takeIf { it.isNotBlank() }
                 pagesFetched++
@@ -100,7 +103,14 @@ class OutlookCalendarScanner(private val context: Context) {
         return events
     }
 
-    private fun parseIso(s: String): Long {
-        return try { SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.parse(s.substring(0, 19))?.time ?: 0L } catch (e: Exception) { 0L }
+    private fun parseIso(s: String, isAllDay: Boolean): Long {
+        if (s.isEmpty()) return 0L
+        return try {
+            if (isAllDay && s.length >= 10) {
+                java.time.LocalDate.parse(s.substring(0, 10)).atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+            } else {
+                SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.parse(s.substring(0, 19))?.time ?: 0L
+            }
+        } catch (e: Exception) { 0L }
     }
 }

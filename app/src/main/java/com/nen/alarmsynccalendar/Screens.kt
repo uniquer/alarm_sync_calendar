@@ -61,6 +61,23 @@ fun MainScreen(
     var showAddAccountChoice by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
+    val upcomingAlarmsState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val pastAlarmsState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val calendarsState = androidx.compose.foundation.lazy.rememberLazyListState()
+
+    val isAlarmsAtTop by remember(alarmsSubTab) {
+        derivedStateOf {
+            val state = if (alarmsSubTab == 0) upcomingAlarmsState else pastAlarmsState
+            state.firstVisibleItemIndex == 0 && state.firstVisibleItemScrollOffset == 0
+        }
+    }
+
+    val isCalendarsAtTop by remember {
+        derivedStateOf {
+            calendarsState.firstVisibleItemIndex == 0 && calendarsState.firstVisibleItemScrollOffset == 0
+        }
+    }
+
     LaunchedEffect(openTabState.value) {
         if (openTabState.value == "past") {
             selectedTab = 0
@@ -148,7 +165,18 @@ fun MainScreen(
             NavigationBarItem(icon = { Icon(Icons.Default.CalendarToday, null) }, label = { Text("Calendars") }, selected = selectedTab == 1, onClick = { selectedTab = 1 })
             NavigationBarItem(icon = { Icon(Icons.Default.Settings, null) }, label = { Text("Settings") }, selected = selectedTab == 2, onClick = { selectedTab = 2 })
         }},
-        floatingActionButton = { if (selectedTab == 0 || selectedTab == 1) FloatingActionButton(onClick = { if (selectedTab == 0) showEditDialog = true else showAddAccountChoice = true }) { Icon(Icons.Default.Add, null) } }
+        floatingActionButton = {
+            if (selectedTab == 0 || selectedTab == 1) {
+                val isExpanded = if (selectedTab == 0) isAlarmsAtTop else isCalendarsAtTop
+                val label = if (selectedTab == 0) "Create Alarm" else "Add Calendar"
+                ExtendedFloatingActionButton(
+                    onClick = { if (selectedTab == 0) showEditDialog = true else showAddAccountChoice = true },
+                    icon = { Icon(Icons.Default.Add, contentDescription = label) },
+                    text = { Text(label) },
+                    expanded = isExpanded
+                )
+            }
+        }
     ) { p ->
         Box(modifier = Modifier.padding(p).fillMaxSize()) {
             when (selectedTab) {
@@ -170,10 +198,12 @@ fun MainScreen(
                         alarmScheduler = alarmScheduler,
                         onSave = onSave,
                         subTab = alarmsSubTab,
-                        onSubTabChange = { alarmsSubTab = it }
+                        onSubTabChange = { alarmsSubTab = it },
+                        upcomingListState = upcomingAlarmsState,
+                        pastListState = pastAlarmsState
                     )
                 }
-                1 -> CalendarsTabScreen(cloudEvents, connectedAccounts, lastSyncTime, onDisconnectAccount, onTogglePrimary, onManualSync, alarmScheduler, activeAlarms, onSave, context, excludedEvents, onToggleAlarm, isSyncing, appSettings, onToggleSecondaryCalendar, fetchAvailableCalendars)
+                1 -> CalendarsTabScreen(cloudEvents, connectedAccounts, lastSyncTime, onDisconnectAccount, onTogglePrimary, onManualSync, alarmScheduler, activeAlarms, onSave, context, excludedEvents, onToggleAlarm, isSyncing, appSettings, onToggleSecondaryCalendar, fetchAvailableCalendars, listState = calendarsState)
                 2 -> SettingsTabScreen(appSettings, onUpdateSettings)
             }
         }
@@ -190,7 +220,9 @@ fun AlarmsTabScreen(
     alarmScheduler: AlarmScheduler,
     onSave: () -> Unit,
     subTab: Int,
-    onSubTabChange: (Int) -> Unit
+    onSubTabChange: (Int) -> Unit,
+    upcomingListState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
+    pastListState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
 ) {
     var alarmToDelete by remember { mutableStateOf<ScheduledAlarm?>(null) }
     
@@ -397,7 +429,7 @@ fun AlarmsTabScreen(
                     }
                 }
             } else {
-                LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 80.dp)) {
+                LazyColumn(state = upcomingListState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 80.dp)) {
                     items(upcoming) { AlarmCard(it, onEdit, { alarm -> alarmToDelete = alarm }) }
                 }
             }
@@ -451,7 +483,7 @@ fun AlarmsTabScreen(
                             Text("Delete All")
                         }
                     }
-                    LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 80.dp)) {
+                    LazyColumn(state = pastListState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 80.dp)) {
                         items(past) { AlarmCard(it, onEdit, { alarm -> alarmToDelete = alarm }, isPast = true) }
                     }
                 }
@@ -477,7 +509,8 @@ fun CalendarsTabScreen(
     isSyncing: Boolean,
     appSettings: AppSettings = AppSettings(),
     onToggleSecondaryCalendar: ((String, String, Boolean) -> Unit)? = null,
-    fetchAvailableCalendars: (suspend (ConnectedCloudAccount) -> List<com.nen.alarmsynccalendar.calendar.GoogleCalendarInfo>)? = null
+    fetchAvailableCalendars: (suspend (ConnectedCloudAccount) -> List<com.nen.alarmsynccalendar.calendar.GoogleCalendarInfo>)? = null,
+    listState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
 ) {
     val sdf = SimpleDateFormat("HH:mm", Locale.getDefault()); val dateSdf = SimpleDateFormat("EEE, MMM dd", Locale.getDefault())
     val syncSdf = SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault())
@@ -522,21 +555,21 @@ fun CalendarsTabScreen(
         if (appSettings.enableSecondaryCalendars) {
             Text("Secondary calendars enabled. Check the secondary calendars under each account that should be synced.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
         } else {
-            Text("Only Primary calendars are synced for performance.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
+            Text("Only Primary calendar is synced, enable secondary calendars in settings to sync them.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.secondary)
         }
         Spacer(Modifier.height(16.dp))
         Spacer(Modifier.height(16.dp))
 
         // Deleted diagnostics and restricted cards to place in SettingsTabScreen
         
-        LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 80.dp)) {
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 80.dp)) {
             if (accounts.isEmpty()) {
                 item { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("No accounts connected. Tap + to add.") } }
             } else {
                 items(accounts) { acc ->
                     var isExpanded by remember { mutableStateOf(false) }
                     val accountEvents = cloudEvents.filter {
-                        it.accountEmail == acc.email && (it.startTime - 5 * 60 * 1000L) > currentTime
+                        it.accountEmail == acc.email && (if (it.isAllDay) (it.startTime + 24 * 60 * 60 * 1000L) > currentTime else (it.startTime - 5 * 60 * 1000L) > currentTime)
                     }.sortedBy { it.startTime }
                     
                     Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
@@ -581,14 +614,30 @@ fun CalendarsTabScreen(
                             }
                             if (isExpanded) {
                                 if (appSettings.enableSecondaryCalendars && fetchAvailableCalendars != null && onToggleSecondaryCalendar != null) {
-                                    var availableCalendars by remember { mutableStateOf<List<com.nen.alarmsynccalendar.calendar.GoogleCalendarInfo>?>(null) }
+                                    var availableCalendars by remember(acc.email, acc.cachedSecondaryCalendars) { mutableStateOf(acc.cachedSecondaryCalendars) }
                                     var isLoadingCalendars by remember { mutableStateOf(false) }
                                     var isSecondarySectionExpanded by remember { mutableStateOf(false) }
 
                                     LaunchedEffect(acc.email, appSettings.enableSecondaryCalendars) {
-                                        isLoadingCalendars = true
-                                        availableCalendars = fetchAvailableCalendars(acc)
-                                        isLoadingCalendars = false
+                                        if (appSettings.enableSecondaryCalendars && availableCalendars == null) {
+                                            isLoadingCalendars = true
+                                            val fetched = fetchAvailableCalendars(acc)
+                                            if (fetched.isNotEmpty()) {
+                                                availableCalendars = fetched
+                                            }
+                                            isLoadingCalendars = false
+                                        }
+                                    }
+
+                                    LaunchedEffect(isSecondarySectionExpanded) {
+                                        if (isSecondarySectionExpanded) {
+                                            isLoadingCalendars = (availableCalendars == null)
+                                            val fetched = fetchAvailableCalendars(acc)
+                                            if (fetched.isNotEmpty()) {
+                                                availableCalendars = fetched
+                                            }
+                                            isLoadingCalendars = false
+                                        }
                                     }
 
                                     val secondaryCals = availableCalendars?.filter { !it.isPrimary } ?: emptyList()
@@ -610,7 +659,7 @@ fun CalendarsTabScreen(
                                             )
                                             Spacer(Modifier.width(8.dp))
                                             Text(
-                                                text = if (isLoadingCalendars) "Secondary Calendars" else "Secondary Calendars ($syncedCount/$totalCount)",
+                                                text = if (isLoadingCalendars && availableCalendars == null) "Secondary Calendars" else "Secondary Calendars ($syncedCount/$totalCount)",
                                                 style = MaterialTheme.typography.titleSmall,
                                                 fontWeight = FontWeight.Bold,
                                                 modifier = Modifier.weight(1f)
@@ -669,15 +718,18 @@ fun CalendarsTabScreen(
                                     Text("No events found in primary calendar.", modifier = Modifier.padding(start = 48.dp, bottom = 12.dp), style = MaterialTheme.typography.bodySmall)
                                 } else {
                                     for (event in accountEvents) {
-                                        val existing = activeAlarms.find { it.googleEventId == event.googleEventId }
+                                        val isAllDay = event.isAllDay
+                                        val existing = if (isAllDay) null else activeAlarms.find { it.googleEventId == event.googleEventId }
                                         val seriesId = event.recurringEventId ?: event.googleEventId?.split("_")?.get(0)
                                         val isExcluded = excludedEvents.any { it.id == event.googleEventId || (seriesId != null && it.id == seriesId) }
                                         
-                                        Row(modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp).fillMaxWidth().alpha(if (isExcluded) 0.5f else 1f).clickable {
+                                        Row(modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp).fillMaxWidth().alpha(if (isAllDay) 0.4f else if (isExcluded) 0.5f else 1f).clickable(enabled = !isAllDay) {
                                             onToggleAlarm(event, isExcluded || existing == null)
                                         }, verticalAlignment = Alignment.CenterVertically) {
                                             Box(modifier = Modifier.size(24.dp), contentAlignment = Alignment.Center) {
-                                                if (isExcluded) {
+                                                if (isAllDay) {
+                                                    Icon(Icons.Default.NotificationsOff, null, tint = Color.Gray, modifier = Modifier.size(20.dp))
+                                                } else if (isExcluded) {
                                                     Icon(Icons.Default.Block, null, tint = Color.Gray, modifier = Modifier.size(20.dp))
                                                 } else if (existing != null) {
                                                     Icon(Icons.Default.Notifications, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
@@ -688,8 +740,21 @@ fun CalendarsTabScreen(
                                             Spacer(Modifier.width(8.dp))
                                             Column(modifier = Modifier.weight(1f)) {
                                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Text(event.title, style = MaterialTheme.typography.bodyMedium, fontWeight = if (existing != null && !isExcluded) FontWeight.Bold else FontWeight.Normal, maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                                                    if (event.isRecurring) {
+                                                    Text(event.title, style = MaterialTheme.typography.bodyMedium, fontWeight = if (existing != null && !isExcluded && !isAllDay) FontWeight.Bold else FontWeight.Normal, maxLines = 3, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                                                    if (isAllDay) {
+                                                        Spacer(Modifier.width(6.dp))
+                                                        Surface(
+                                                            shape = RoundedCornerShape(4.dp),
+                                                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                                        ) {
+                                                            Text(
+                                                                "All Day",
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
+                                                        }
+                                                    } else if (event.isRecurring) {
                                                         Spacer(Modifier.width(6.dp))
                                                         Icon(
                                                             imageVector = Icons.Default.Repeat,
@@ -699,7 +764,8 @@ fun CalendarsTabScreen(
                                                         )
                                                     }
                                                 }
-                                                Text("${dateSdf.format(Date(event.startTime))} ${sdf.format(Date(event.startTime))}", style = MaterialTheme.typography.labelSmall)
+                                                val dateText = if (isAllDay) dateSdf.format(Date(event.startTime)) else "${dateSdf.format(Date(event.startTime))} ${sdf.format(Date(event.startTime))}"
+                                                Text(dateText, style = MaterialTheme.typography.labelSmall)
                                                 TravelInfoRow(event.location, event.distanceKm, event.travelTimeMinutes, event.noDrivingRoute)
                                                 if (!event.meetingLink.isNullOrBlank()) {
                                                     Spacer(Modifier.height(8.dp))
@@ -912,13 +978,11 @@ fun AboutDialog(onDismiss: () -> Unit, onOpenSettings: () -> Unit, onOpenOEM: ()
             androidx.compose.foundation.lazy.LazyColumn {
                 item {
                     Text("CalAlarm Sync Version ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleSmall)
-                    Spacer(Modifier.height(8.dp))
-                    Text("Only Primary calendars are synced for performance.", style = MaterialTheme.typography.bodySmall)
                     
                     Spacer(Modifier.height(16.dp))
                     Text("Device Reliability", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
                     Text("For 100% reliability, ensure these are enabled in settings:", style = MaterialTheme.typography.bodySmall)
-                    Text("• Show on Lock screen\n• Display over other apps\n• Auto-start\n• Battery: 'Unrestricted'\n• Lock app in Recents (Padlock icon)", style = MaterialTheme.typography.bodySmall)
+                    Text("• Show on Lock screen\n• Display over other apps\n• Auto-start\n• Battery: 'Unrestricted'", style = MaterialTheme.typography.bodySmall)
                     
                     Spacer(Modifier.height(16.dp))
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {

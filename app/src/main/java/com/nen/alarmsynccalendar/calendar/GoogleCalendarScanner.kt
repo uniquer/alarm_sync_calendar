@@ -57,7 +57,7 @@ class GoogleCalendarScanner(private val context: Context) {
                 }
             }
             val now = System.currentTimeMillis()
-            allEvents.filter { (it.startTime - 5 * 60 * 1000L) > now }
+            allEvents.filter { if (it.isAllDay) (it.startTime + 24 * 60 * 60 * 1000L) > now else (it.startTime - 5 * 60 * 1000L) > now }
                 .groupBy { it.recurringEventId ?: it.googleEventId }
                 .map { (_, instances) -> instances.sortedBy { it.startTime }.first() }
         } catch (e: Exception) { Log.e("CAL_DEBUG", "Error syncing $email: ${e.message}"); throw e }
@@ -66,7 +66,8 @@ class GoogleCalendarScanner(private val context: Context) {
     private fun fetchEventsFromCalendar(token: String, calendarId: String, email: String): List<EventInfo> {
         val events = mutableListOf<EventInfo>()
         val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
-        val start = sdf.format(Date()); val end = sdf.format(Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 60) }.time)
+        val startCal = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }
+        val start = sdf.format(startCal.time); val end = sdf.format(Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 60) }.time)
         val encodedId = java.net.URLEncoder.encode(calendarId, "UTF-8")
         val baseUrl = "https://www.googleapis.com/calendar/v3/calendars/$encodedId/events?timeMin=$start&timeMax=$end&singleEvents=true&orderBy=startTime&conferenceDataVersion=1&maxResults=250"
 
@@ -89,8 +90,14 @@ class GoogleCalendarScanner(private val context: Context) {
                 if (item.optString("status") == "cancelled") continue
                 val id = item.getString("id")
                 val recurringId = item.optString("recurringEventId").takeIf { it.isNotBlank() }
-                val startStr = item.optJSONObject("start")?.optString("dateTime") ?: item.optJSONObject("start")?.optString("date") ?: ""
+                val startObj = item.optJSONObject("start")
+                val isAllDay = startObj?.has("date") == true && !startObj.has("dateTime")
+                val startStr = startObj?.optString("dateTime")?.takeIf { it.isNotBlank() }
+                    ?: startObj?.optString("date")?.takeIf { it.isNotBlank() }
+                    ?: ""
                 if (startStr.isEmpty()) continue
+                val startTs = parseIso(startStr, isAllDay)
+                if (startTs == 0L) continue
                 val org = item.optJSONObject("organizer")?.optString("email") ?: "Unknown"
                 
                 val desc = item.optString("description").takeIf { it.isNotBlank() }
@@ -114,7 +121,7 @@ class GoogleCalendarScanner(private val context: Context) {
                     meetingLink = MeetingUtils.extractMeetingLink(loc, desc)
                 }
 
-                events.add(EventInfo(id.hashCode().toLong(), id, recurringId, recurringId != null || item.has("recurrence"), null, item.optString("summary", "No Title"), parseIso(startStr), 0L, desc, org, email, meetingLink, location = MeetingUtils.extractPhysicalLocation(loc)))
+                events.add(EventInfo(id.hashCode().toLong(), id, recurringId, recurringId != null || item.has("recurrence"), null, item.optString("summary", "No Title"), startTs, 0L, desc, org, email, meetingLink, location = MeetingUtils.extractPhysicalLocation(loc), isAllDay = isAllDay))
             }
             } else if (responseCode == 401 || responseCode == 403) {
                 throw com.google.android.gms.auth.GoogleAuthException("Google Calendar Auth failed: HTTP $responseCode")
@@ -125,17 +132,20 @@ class GoogleCalendarScanner(private val context: Context) {
         return events
     }
 
-    private fun parseIso(s: String): Long {
-        // Google returns dateTime with the event's own offset (e.g. "...T09:00:00-04:00"
-        // for a New York event). Honor it so cross-timezone events land at the right
-        // local time instead of being read as device-local clock time.
+    private fun parseIso(s: String, isAllDay: Boolean): Long {
+        if (s.isEmpty()) return 0L
+        if (isAllDay) {
+            return try {
+                java.time.LocalDate.parse(s).atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+            } catch (e: Exception) { 0L }
+        }
         return try {
             java.time.OffsetDateTime.parse(s).toInstant().toEpochMilli()
         } catch (e: Exception) {
             try {
                 // No offset supplied — assume device-local time
                 java.time.LocalDateTime.parse(s).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
-            } catch (e2: Exception) { 0L } // date-only (all-day) events stay excluded
+            } catch (e2: Exception) { 0L }
         }
     }
 }

@@ -27,7 +27,8 @@ data class EventInfo(
     val travelTimeMinutes: Int? = null,
     // True when the Distance Matrix API found no driving route (e.g. overseas) —
     // treated like a long trip: alarm 24hrs before, no travel time shown.
-    val noDrivingRoute: Boolean? = null
+    val noDrivingRoute: Boolean? = null,
+    val isAllDay: Boolean = false
 )
 
 data class ScheduledAlarm(
@@ -55,6 +56,7 @@ data class ConnectedCloudAccount(
     val provider: CloudProvider,
     val isPrimaryEnabled: Boolean = true,
     val selectedSecondaryCalendarIds: List<String>? = emptyList(),
+    val cachedSecondaryCalendars: List<com.nen.alarmsynccalendar.calendar.GoogleCalendarInfo>? = null,
     var accessToken: String? = null,
     var refreshToken: String? = null,
     var isExpanded: Boolean = false,
